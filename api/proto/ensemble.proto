@@ -1,0 +1,157 @@
+syntax = "proto3";
+
+package ensemble.api;
+
+option go_package = "github.com/boxsie/ensemble/api/pb";
+
+// --- Service ---
+
+service EnsembleService {
+  // Identity
+  rpc GetIdentity(GetIdentityRequest) returns (GetIdentityResponse);
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+
+  // Contacts
+  rpc ListContacts(ListContactsRequest) returns (ListContactsResponse);
+  rpc AddContact(AddContactRequest) returns (AddContactResponse);
+  rpc RemoveContact(RemoveContactRequest) returns (RemoveContactResponse);
+
+  // Connection
+  rpc Connect(ConnectRequest) returns (ConnectResponse);
+  rpc AcceptConnection(AcceptConnectionRequest) returns (AcceptConnectionResponse);
+  rpc RejectConnection(RejectConnectionRequest) returns (RejectConnectionResponse);
+
+  // Chat
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+
+  // File transfer
+  rpc SendFile(SendFileRequest) returns (stream TransferProgress);
+  rpc AcceptFile(AcceptFileRequest) returns (AcceptFileResponse);
+  rpc RejectFile(RejectFileRequest) returns (RejectFileResponse);
+
+  // Events
+  rpc Subscribe(SubscribeRequest) returns (stream DaemonEvent);
+}
+
+// --- Identity ---
+
+message GetIdentityRequest {}
+
+message GetIdentityResponse {
+  string address    = 1;
+  bytes  public_key = 2;
+}
+
+message GetStatusRequest {}
+
+message GetStatusResponse {
+  string tor_state   = 1; // "bootstrapping", "ready", "disabled"
+  int32  peer_count  = 2;
+  string onion_addr  = 3;
+  int64  uptime_ms   = 4;
+}
+
+// --- Contacts ---
+
+message ListContactsRequest {}
+
+message ListContactsResponse {
+  repeated ContactInfo contacts = 1;
+}
+
+message ContactInfo {
+  string address       = 1;
+  string alias         = 2;
+  bytes  public_key    = 3;
+  string onion_address = 4;
+  int64  added_at      = 5;  // Unix millis
+  int64  last_seen     = 6;  // Unix millis
+  bool   online        = 7;
+}
+
+message AddContactRequest {
+  string address    = 1;
+  string alias      = 2;
+  bytes  public_key = 3;
+}
+
+message AddContactResponse {}
+
+message RemoveContactRequest {
+  string address = 1;
+}
+
+message RemoveContactResponse {}
+
+// --- Connection ---
+
+message ConnectRequest {
+  string address = 1; // peer's ensemble address
+}
+
+message ConnectResponse {
+  bool   accepted = 1;
+  string message  = 2;
+}
+
+message AcceptConnectionRequest {
+  string address = 1; // requester's address
+}
+
+message AcceptConnectionResponse {}
+
+message RejectConnectionRequest {
+  string address = 1;
+}
+
+message RejectConnectionResponse {}
+
+// --- Chat ---
+
+message SendMessageRequest {
+  string address = 1; // recipient's address
+  string text    = 2;
+}
+
+message SendMessageResponse {
+  string message_id = 1;
+}
+
+// --- File transfer ---
+
+message SendFileRequest {
+  string address   = 1; // recipient's address
+  string file_path = 2;
+}
+
+message TransferProgress {
+  string transfer_id    = 1;
+  string filename       = 2;
+  uint64 total_bytes    = 3;
+  uint64 sent_bytes     = 4;
+  float  percent        = 5;
+  bool   complete       = 6;
+  string error          = 7;
+}
+
+message AcceptFileRequest {
+  string transfer_id = 1;
+  string save_path   = 2; // where to save the file
+}
+
+message AcceptFileResponse {}
+
+message RejectFileRequest {
+  string transfer_id = 1;
+}
+
+message RejectFileResponse {}
+
+// --- Events ---
+
+message SubscribeRequest {}
+
+message DaemonEvent {
+  string type    = 1; // event type name
+  string payload = 2; // JSON-encoded event data
+}

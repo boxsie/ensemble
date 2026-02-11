@@ -1,0 +1,29 @@
+# Binaries
+/bin/
+/ensemble
+*.exe
+
+# Go
+/vendor/
+
+# Test
+coverage.out
+*.test
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tor data (generated at runtime)
+tor-data/
+
+# Runtime data
+*.sock
+*.pid
+*.log
