@@ -31,6 +31,7 @@ const (
 	EnsembleService_SendFile_FullMethodName         = "/ensemble.api.EnsembleService/SendFile"
 	EnsembleService_AcceptFile_FullMethodName       = "/ensemble.api.EnsembleService/AcceptFile"
 	EnsembleService_RejectFile_FullMethodName       = "/ensemble.api.EnsembleService/RejectFile"
+	EnsembleService_AddNode_FullMethodName          = "/ensemble.api.EnsembleService/AddNode"
 	EnsembleService_Subscribe_FullMethodName        = "/ensemble.api.EnsembleService/Subscribe"
 )
 
@@ -55,6 +56,8 @@ type EnsembleServiceClient interface {
 	SendFile(ctx context.Context, in *SendFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TransferProgress], error)
 	AcceptFile(ctx context.Context, in *AcceptFileRequest, opts ...grpc.CallOption) (*AcceptFileResponse, error)
 	RejectFile(ctx context.Context, in *RejectFileRequest, opts ...grpc.CallOption) (*RejectFileResponse, error)
+	// Discovery
+	AddNode(ctx context.Context, in *AddNodeRequest, opts ...grpc.CallOption) (*AddNodeResponse, error)
 	// Events
 	Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DaemonEvent], error)
 }
@@ -196,6 +199,16 @@ func (c *ensembleServiceClient) RejectFile(ctx context.Context, in *RejectFileRe
 	return out, nil
 }
 
+func (c *ensembleServiceClient) AddNode(ctx context.Context, in *AddNodeRequest, opts ...grpc.CallOption) (*AddNodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AddNodeResponse)
+	err := c.cc.Invoke(ctx, EnsembleService_AddNode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *ensembleServiceClient) Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DaemonEvent], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &EnsembleService_ServiceDesc.Streams[1], EnsembleService_Subscribe_FullMethodName, cOpts...)
@@ -236,6 +249,8 @@ type EnsembleServiceServer interface {
 	SendFile(*SendFileRequest, grpc.ServerStreamingServer[TransferProgress]) error
 	AcceptFile(context.Context, *AcceptFileRequest) (*AcceptFileResponse, error)
 	RejectFile(context.Context, *RejectFileRequest) (*RejectFileResponse, error)
+	// Discovery
+	AddNode(context.Context, *AddNodeRequest) (*AddNodeResponse, error)
 	// Events
 	Subscribe(*SubscribeRequest, grpc.ServerStreamingServer[DaemonEvent]) error
 	mustEmbedUnimplementedEnsembleServiceServer()
@@ -283,6 +298,9 @@ func (UnimplementedEnsembleServiceServer) AcceptFile(context.Context, *AcceptFil
 }
 func (UnimplementedEnsembleServiceServer) RejectFile(context.Context, *RejectFileRequest) (*RejectFileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RejectFile not implemented")
+}
+func (UnimplementedEnsembleServiceServer) AddNode(context.Context, *AddNodeRequest) (*AddNodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AddNode not implemented")
 }
 func (UnimplementedEnsembleServiceServer) Subscribe(*SubscribeRequest, grpc.ServerStreamingServer[DaemonEvent]) error {
 	return status.Error(codes.Unimplemented, "method Subscribe not implemented")
@@ -517,6 +535,24 @@ func _EnsembleService_RejectFile_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EnsembleService_AddNode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddNodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EnsembleServiceServer).AddNode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EnsembleService_AddNode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EnsembleServiceServer).AddNode(ctx, req.(*AddNodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _EnsembleService_Subscribe_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(SubscribeRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -578,6 +614,10 @@ var EnsembleService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RejectFile",
 			Handler:    _EnsembleService_RejectFile_Handler,
+		},
+		{
+			MethodName: "AddNode",
+			Handler:    _EnsembleService_AddNode_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

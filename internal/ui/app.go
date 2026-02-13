@@ -29,6 +29,7 @@ const (
 	ScreenFilePicker
 	ScreenFileOffer
 	ScreenTransfer
+	ScreenAddNode
 )
 
 // identityLoadedMsg is sent when identity has been fetched from the backend.
@@ -54,6 +55,12 @@ type contactSavedMsg struct{}
 
 // contactSaveErrMsg signals a contact save failed.
 type contactSaveErrMsg struct{ err error }
+
+// nodeSavedMsg signals a bootstrap node was added successfully.
+type nodeSavedMsg struct{}
+
+// nodeSaveErrMsg signals a bootstrap node add failed.
+type nodeSaveErrMsg struct{ err error }
 
 // connDecisionDoneMsg signals that accept/reject completed.
 type connDecisionDoneMsg struct{ err error }
@@ -86,6 +93,7 @@ type App struct {
 	home          screens.Home
 	settings      screens.Settings
 	addContact    screens.AddContact
+	addNode       screens.AddNode
 	connPrompt    screens.ConnPrompt
 	chat          screens.Chat
 	filePicker    screens.FilePicker
@@ -109,6 +117,7 @@ func NewApp(backend Backend) App {
 		home:       screens.NewHome(),
 		settings:   screens.NewSettings(),
 		addContact: screens.NewAddContact(),
+		addNode:    screens.NewAddNode(),
 		status:     components.NewStatusBar(),
 	}
 }
@@ -199,6 +208,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.settings.Height = contentHeight
 		a.addContact.Width = msg.Width
 		a.addContact.Height = contentHeight
+		a.addNode.Width = msg.Width
+		a.addNode.Height = contentHeight
 		a.connPrompt.Width = msg.Width
 		a.connPrompt.Height = contentHeight
 		if a.screen == ScreenChat {
@@ -242,6 +253,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case screens.AddContactSavedMsg:
 		return a, a.saveContact(msg.Address, msg.Alias)
+
+	case screens.AddNodeSavedMsg:
+		return a, a.saveNode(msg.OnionAddr)
+
+	case nodeSavedMsg:
+		a.screen = ScreenHome
+		return a, nil
+
+	case nodeSaveErrMsg:
+		return a, nil
 
 	case screens.ConnAcceptedMsg:
 		return a, a.acceptConn(msg.Address)
@@ -338,6 +359,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.settings, cmd = a.settings.Update(msg)
 	case ScreenAddContact:
 		a.addContact, cmd = a.addContact.Update(msg)
+	case ScreenAddNode:
+		a.addNode, cmd = a.addNode.Update(msg)
 	case ScreenConnPrompt:
 		a.connPrompt, cmd = a.connPrompt.Update(msg)
 	case ScreenChat:
@@ -352,6 +375,15 @@ func (a App) saveContact(addr, alias string) tea.Cmd {
 			return contactSaveErrMsg{err: err}
 		}
 		return contactSavedMsg{}
+	}
+}
+
+func (a App) saveNode(onionAddr string) tea.Cmd {
+	return func() tea.Msg {
+		if err := a.backend.AddNode(context.Background(), onionAddr); err != nil {
+			return nodeSaveErrMsg{err: err}
+		}
+		return nodeSavedMsg{}
 	}
 }
 
@@ -491,7 +523,7 @@ func (a *App) maybeTransition() bool {
 
 func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Global quit — but not when typing in a text field.
-	if a.screen != ScreenAddContact && a.screen != ScreenConnPrompt && a.screen != ScreenChat && a.screen != ScreenFileOffer {
+	if a.screen != ScreenAddContact && a.screen != ScreenAddNode && a.screen != ScreenConnPrompt && a.screen != ScreenChat && a.screen != ScreenFileOffer {
 		switch {
 		case msg.String() == "q" || msg.String() == "ctrl+c":
 			return a, tea.Quit
@@ -505,6 +537,12 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.addContact.Reset()
 				a.screen = ScreenAddContact
 				return a, a.addContact.Init()
+			}
+		case msg.String() == "n":
+			if a.screen == ScreenHome {
+				a.addNode.Reset()
+				a.screen = ScreenAddNode
+				return a, a.addNode.Init()
 			}
 		case msg.String() == "s":
 			if a.screen == ScreenHome {
@@ -544,8 +582,8 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return a, tea.Quit
 		}
-	} else if a.screen == ScreenAddContact {
-		// Esc from add contact returns home.
+	} else if a.screen == ScreenAddContact || a.screen == ScreenAddNode {
+		// Esc from add contact/node returns home.
 		if msg.String() == "esc" {
 			a.screen = ScreenHome
 			return a, nil
@@ -570,6 +608,8 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.settings, cmd = a.settings.Update(msg)
 	case ScreenAddContact:
 		a.addContact, cmd = a.addContact.Update(msg)
+	case ScreenAddNode:
+		a.addNode, cmd = a.addNode.Update(msg)
 	case ScreenConnPrompt:
 		a.connPrompt, cmd = a.connPrompt.Update(msg)
 	case ScreenChat:
@@ -596,6 +636,8 @@ func (a App) View() string {
 		content = a.settings.View()
 	case ScreenAddContact:
 		content = a.addContact.View()
+	case ScreenAddNode:
+		content = a.addNode.View()
 	case ScreenConnPrompt:
 		content = a.connPrompt.View()
 	case ScreenChat:

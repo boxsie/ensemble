@@ -153,6 +153,17 @@ func (n *Node) SetSignaling(server *signaling.Server, client *signaling.Client) 
 	}
 }
 
+// AddNode bootstraps discovery by dialing a known seed node's onion address.
+func (n *Node) AddNode(ctx context.Context, onionAddr string) error {
+	n.mu.RLock()
+	disc := n.discovery
+	n.mu.RUnlock()
+	if disc == nil {
+		return fmt.Errorf("discovery not initialized")
+	}
+	return disc.AddNode(ctx, onionAddr)
+}
+
 // Connect initiates a connection to a peer by address.
 // When a Connector is available, runs the full flow:
 // discovery → signaling → IP exchange → NAT traversal → direct connection.

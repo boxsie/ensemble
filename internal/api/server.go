@@ -33,6 +33,7 @@ type NodeProvider interface {
 	SendFile(ctx context.Context, peerAddr, filePath string) (string, error)
 	AcceptFile(transferID, savePath string) error
 	RejectFile(transferID, reason string) error
+	AddNode(ctx context.Context, onionAddr string) error
 }
 
 // Server implements the EnsembleService gRPC interface.
@@ -183,4 +184,11 @@ func (s *Server) RejectFile(_ context.Context, req *apipb.RejectFileRequest) (*a
 		return nil, status.Errorf(codes.Internal, "rejecting file: %v", err)
 	}
 	return &apipb.RejectFileResponse{}, nil
+}
+
+func (s *Server) AddNode(ctx context.Context, req *apipb.AddNodeRequest) (*apipb.AddNodeResponse, error) {
+	if err := s.node.AddNode(ctx, req.OnionAddress); err != nil {
+		return nil, status.Errorf(codes.Internal, "adding node: %v", err)
+	}
+	return &apipb.AddNodeResponse{}, nil
 }

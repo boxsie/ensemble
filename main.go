@@ -29,6 +29,7 @@ func runDaemon(args []string) {
 	headless := fs.Bool("headless", false, "run daemon without TUI")
 	dataDir := fs.String("data-dir", "", "override data directory")
 	apiAddr := fs.String("api-addr", "", "TCP listen address for gRPC (headless mode)")
+	torPath := fs.String("tor-path", "", "path to tor binary (skip auto-download)")
 	fs.Parse(args)
 
 	cfg := daemon.DefaultConfig()
@@ -38,6 +39,9 @@ func runDaemon(args []string) {
 	}
 	if *apiAddr != "" {
 		cfg.TCPAddr = *apiAddr
+	}
+	if *torPath != "" {
+		cfg.TorPath = *torPath
 	}
 
 	d := daemon.New(cfg)

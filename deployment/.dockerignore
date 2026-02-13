@@ -1,0 +1,10 @@
+.git
+bin/
+deployment/
+*.exe
+*.test
+coverage.out
+tor-data/
+.vscode/
+.idea/
+docs/

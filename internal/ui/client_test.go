@@ -45,6 +45,7 @@ func (m *mockNode) SendFile(_ context.Context, _, _ string) (string, error) {
 }
 func (m *mockNode) AcceptFile(_, _ string) error  { return fmt.Errorf("not implemented") }
 func (m *mockNode) RejectFile(_, _ string) error  { return fmt.Errorf("not implemented") }
+func (m *mockNode) AddNode(_ context.Context, _ string) error { return fmt.Errorf("not implemented") }
 
 func newMockNode(t *testing.T) *mockNode {
 	t.Helper()

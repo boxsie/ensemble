@@ -108,6 +108,14 @@ func (m *Manager) PeerChan() <-chan *PeerInfo {
 	return m.peerCh
 }
 
+// AddNode bootstraps the DHT by dialing a known seed node's onion address.
+func (m *Manager) AddNode(ctx context.Context, onionAddr string) error {
+	if m.dht == nil {
+		return fmt.Errorf("DHT not initialized")
+	}
+	return m.dht.Bootstrap(ctx, onionAddr)
+}
+
 // emitIfNew sends a peer to the unified channel if not already seen.
 func (m *Manager) emitIfNew(p *PeerInfo) {
 	m.mu.Lock()

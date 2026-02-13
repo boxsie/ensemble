@@ -32,6 +32,7 @@ type directNode interface {
 	SendFile(ctx context.Context, peerAddr, filePath string) (string, error)
 	AcceptFile(transferID, savePath string) error
 	RejectFile(transferID, reason string) error
+	AddNode(ctx context.Context, onionAddr string) error
 }
 
 // DirectBackend wraps a node.Node for in-process TUI access (no serialization).
@@ -129,6 +130,10 @@ func (b *DirectBackend) AcceptFile(_ context.Context, transferID, savePath strin
 
 func (b *DirectBackend) RejectFile(_ context.Context, transferID string) error {
 	return b.node.RejectFile(transferID, "rejected by user")
+}
+
+func (b *DirectBackend) AddNode(ctx context.Context, onionAddr string) error {
+	return b.node.AddNode(ctx, onionAddr)
 }
 
 func (b *DirectBackend) Subscribe(ctx context.Context) (<-chan node.Event, error) {

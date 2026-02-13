@@ -29,6 +29,9 @@ service EnsembleService {
   rpc AcceptFile(AcceptFileRequest) returns (AcceptFileResponse);
   rpc RejectFile(RejectFileRequest) returns (RejectFileResponse);
 
+  // Discovery
+  rpc AddNode(AddNodeRequest) returns (AddNodeResponse);
+
   // Events
   rpc Subscribe(SubscribeRequest) returns (stream DaemonEvent);
 }
@@ -146,6 +149,14 @@ message RejectFileRequest {
 }
 
 message RejectFileResponse {}
+
+// --- Discovery ---
+
+message AddNodeRequest {
+  string onion_address = 1;
+}
+
+message AddNodeResponse {}
 
 // --- Events ---
 

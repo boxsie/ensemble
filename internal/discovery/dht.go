@@ -43,6 +43,20 @@ func NewDHTDiscovery(rt *RoutingTable, localPeer *PeerInfo, dialer Dialer) *DHTD
 	}
 }
 
+// Bootstrap dials a seed node and performs a FindNode(self) to populate the routing table.
+// The seed itself is not stored — it's used as a gateway to discover other peers.
+func (d *DHTDiscovery) Bootstrap(ctx context.Context, onionAddr string) error {
+	seed := &PeerInfo{OnionAddr: onionAddr}
+	peers, err := d.sendFindNode(ctx, seed, d.localPeer.ID)
+	if err != nil {
+		return fmt.Errorf("bootstrap find_node: %w", err)
+	}
+	for _, p := range peers {
+		d.rt.AddPeer(p, p.ID)
+	}
+	return nil
+}
+
 // Announce pushes our PeerRecord to the K closest nodes in the routing table.
 func (d *DHTDiscovery) Announce(ctx context.Context) error {
 	d.localPeer.LastSeen = time.Now()
