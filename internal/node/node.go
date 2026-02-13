@@ -232,6 +232,73 @@ func (n *Node) RejectConnection(addr string, reason string) error {
 	return nil
 }
 
+// RTSize returns the DHT routing table size.
+func (n *Node) RTSize() int {
+	n.mu.RLock()
+	disc := n.discovery
+	n.mu.RUnlock()
+	if disc != nil {
+		return disc.RTSize()
+	}
+	return 0
+}
+
+// DebugInfo holds diagnostic information about the node.
+type DebugInfo struct {
+	RTSize      int
+	RTPeers     []DebugPeer
+	Connections []DebugConnection
+	OnionAddr   string
+}
+
+// DebugPeer represents a peer in the routing table for debug output.
+type DebugPeer struct {
+	Address   string
+	OnionAddr string
+	LastSeen  int64 // Unix millis
+}
+
+// DebugConnection represents a connection for debug output.
+type DebugConnection struct {
+	Address string
+	State   string
+	Error   string
+}
+
+// GetDebugInfo aggregates diagnostic info from subsystems.
+func (n *Node) GetDebugInfo() *DebugInfo {
+	n.mu.RLock()
+	disc := n.discovery
+	conn := n.connector
+	onion := n.onionAddr
+	n.mu.RUnlock()
+
+	info := &DebugInfo{OnionAddr: onion}
+
+	if disc != nil {
+		peers := disc.ListPeers()
+		info.RTSize = len(peers)
+		for _, p := range peers {
+			info.RTPeers = append(info.RTPeers, DebugPeer{
+				Address:   p.Address,
+				OnionAddr: p.OnionAddr,
+				LastSeen:  p.LastSeen.UnixMilli(),
+			})
+		}
+	}
+
+	if conn != nil {
+		for _, pc := range conn.ActivePeers() {
+			info.Connections = append(info.Connections, DebugConnection{
+				Address: pc.Address,
+				State:   pc.State.String(),
+			})
+		}
+	}
+
+	return info
+}
+
 // PeerCount returns the number of active peer connections.
 func (n *Node) PeerCount() int32 {
 	n.mu.RLock()

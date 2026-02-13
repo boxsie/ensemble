@@ -11,6 +11,7 @@ type Config struct {
 	Passphrase string // keystore passphrase (empty = no encryption)
 	SocketPath string // Unix socket path for gRPC API
 	TCPAddr    string // optional TCP address for gRPC (headless/remote)
+	AdminKey   string // hex-encoded Ed25519 public key for gRPC auth
 	DisableTor bool   // skip Tor startup (for testing)
 	TorPath    string // explicit path to tor binary (overrides auto-download)
 	DisableP2P bool   // skip libp2p host startup (for testing)

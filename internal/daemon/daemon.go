@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
@@ -141,7 +142,19 @@ func (d *Daemon) Start() error {
 		d.startTor()
 	}
 
-	d.grpcServer = grpc.NewServer()
+	var grpcOpts []grpc.ServerOption
+	if d.cfg.AdminKey != "" {
+		adminPub, err := hex.DecodeString(d.cfg.AdminKey)
+		if err != nil || len(adminPub) != 32 {
+			return fmt.Errorf("invalid admin key: must be 64 hex chars (32 bytes Ed25519 public key)")
+		}
+		grpcOpts = append(grpcOpts,
+			grpc.UnaryInterceptor(api.AdminKeyUnaryInterceptor(adminPub)),
+			grpc.StreamInterceptor(api.AdminKeyStreamInterceptor(adminPub)),
+		)
+		log.Printf("gRPC Ed25519 authentication enabled (admin=%s...)", d.cfg.AdminKey[:16])
+	}
+	d.grpcServer = grpc.NewServer(grpcOpts...)
 	apiServer := api.NewServer(d.node)
 	apiServer.Register(d.grpcServer)
 
@@ -292,8 +305,9 @@ func (d *Daemon) wireSubsystems(ctx context.Context, onionAddr string) {
 	dht := discovery.NewDHTDiscovery(rt, localPeer, dialAdapter)
 	mdns := discovery.NewMDNSDiscovery(addr, onionAddr)
 	discMgr := discovery.NewManager(dht, mdns)
+	discMgr.SetRTPath(rtPath)
 	d.node.SetDiscovery(discMgr)
-	log.Printf("discovery: DHT + mDNS initialized")
+	log.Printf("discovery: DHT + mDNS initialized (rt_size=%d)", rt.Size())
 
 	// Signaling server + client.
 	sigServer := signaling.NewServer(kp, addr, cs)
@@ -305,6 +319,23 @@ func (d *Daemon) wireSubsystems(ctx context.Context, onionAddr string) {
 		go d.serveOnion(ctx, d.onionService.Listener(), dht, sigServer)
 		log.Printf("onion: multiplexer started (signaling + DHT)")
 	}
+
+	// Announce to DHT if routing table has peers from disk.
+	if rt.Size() > 0 {
+		go func() {
+			if err := dht.Announce(ctx); err != nil {
+				log.Printf("discovery: startup announce: %v", err)
+			} else {
+				log.Printf("discovery: startup announce succeeded (rt_size=%d)", rt.Size())
+			}
+			if saveErr := rt.Save(rtPath); saveErr != nil {
+				log.Printf("discovery: save routing table: %v", saveErr)
+			}
+		}()
+	}
+
+	// Start periodic re-announce loop.
+	discMgr.StartAnnounceLoop(ctx)
 
 	// Connection orchestrator (only if p2p host is available).
 	if d.p2pHost != nil {

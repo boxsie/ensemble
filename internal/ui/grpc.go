@@ -2,12 +2,14 @@ package ui
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"io"
 	"time"
 
 	apipb "github.com/boxsie/ensemble/api/pb"
+	"github.com/boxsie/ensemble/internal/api"
 	"github.com/boxsie/ensemble/internal/contacts"
 	"github.com/boxsie/ensemble/internal/node"
 	"google.golang.org/grpc"
@@ -25,10 +27,15 @@ type GRPCBackend struct {
 
 // NewGRPCBackend dials the given target and returns a gRPC-backed Backend.
 // For a Unix socket, use "unix:///path/to/socket".
-func NewGRPCBackend(target string) (*GRPCBackend, error) {
-	conn, err := grpc.NewClient(target,
+// privKey is optional — if non-nil, each RPC is signed with this Ed25519 key.
+func NewGRPCBackend(target string, privKey ed25519.PrivateKey) (*GRPCBackend, error) {
+	opts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	}
+	if privKey != nil {
+		opts = append(opts, grpc.WithPerRPCCredentials(api.SignedCredentials{PrivKey: privKey}))
+	}
+	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("dialing %s: %w", target, err)
 	}
@@ -59,7 +66,34 @@ func (b *GRPCBackend) GetStatus(ctx context.Context) (*StatusInfo, error) {
 		PeerCount: resp.PeerCount,
 		OnionAddr: resp.OnionAddr,
 		UptimeMs:  resp.UptimeMs,
+		RTSize:    resp.RtSize,
 	}, nil
+}
+
+func (b *GRPCBackend) GetDebugInfo(ctx context.Context) (*DebugInfo, error) {
+	resp, err := b.client.GetDebugInfo(ctx, &apipb.GetDebugInfoRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("getting debug info: %w", err)
+	}
+	di := &DebugInfo{
+		RTSize:    int(resp.RtSize),
+		OnionAddr: resp.OnionAddr,
+	}
+	for _, p := range resp.RtPeers {
+		di.RTPeers = append(di.RTPeers, DebugPeer{
+			Address:   p.Address,
+			OnionAddr: p.OnionAddr,
+			LastSeen:  p.LastSeen,
+		})
+	}
+	for _, c := range resp.Connections {
+		di.Connections = append(di.Connections, DebugConnection{
+			Address: c.Address,
+			State:   c.State,
+			Error:   c.Error,
+		})
+	}
+	return di, nil
 }
 
 func (b *GRPCBackend) ListContacts(ctx context.Context) ([]*contacts.Contact, error) {

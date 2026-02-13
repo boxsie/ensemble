@@ -13,4 +13,5 @@ RUN useradd -m -s /bin/sh -u 1000 ensemble
 COPY --from=builder /ensemble /usr/local/bin/ensemble
 RUN mkdir -p /data && chown ensemble:ensemble /data
 USER ensemble
-ENTRYPOINT ["ensemble", "--headless", "--data-dir", "/data", "--tor-path", "/usr/bin/tor"]
+EXPOSE 9090
+ENTRYPOINT ["ensemble", "--headless", "--data-dir", "/data", "--tor-path", "/usr/bin/tor", "--api-addr", "0.0.0.0:9090"]

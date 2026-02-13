@@ -235,6 +235,21 @@ func (rt *RoutingTable) Local() NodeID {
 	return rt.local
 }
 
+// AllPeers returns a copy of all peers in the routing table.
+func (rt *RoutingTable) AllPeers() []*PeerInfo {
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+
+	var peers []*PeerInfo
+	for i := range rt.buckets {
+		for _, p := range rt.buckets[i].peers {
+			cp := *p
+			peers = append(peers, &cp)
+		}
+	}
+	return peers
+}
+
 // Save persists the routing table to a JSON file at the given path.
 func (rt *RoutingTable) Save(path string) error {
 	rt.mu.RLock()

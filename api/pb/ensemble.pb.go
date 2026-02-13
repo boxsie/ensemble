@@ -151,6 +151,7 @@ type GetStatusResponse struct {
 	PeerCount     int32                  `protobuf:"varint,2,opt,name=peer_count,json=peerCount,proto3" json:"peer_count,omitempty"`
 	OnionAddr     string                 `protobuf:"bytes,3,opt,name=onion_addr,json=onionAddr,proto3" json:"onion_addr,omitempty"`
 	UptimeMs      int64                  `protobuf:"varint,4,opt,name=uptime_ms,json=uptimeMs,proto3" json:"uptime_ms,omitempty"`
+	RtSize        int32                  `protobuf:"varint,5,opt,name=rt_size,json=rtSize,proto3" json:"rt_size,omitempty"` // routing table size
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -209,6 +210,13 @@ func (x *GetStatusResponse) GetOnionAddr() string {
 func (x *GetStatusResponse) GetUptimeMs() int64 {
 	if x != nil {
 		return x.UptimeMs
+	}
+	return 0
+}
+
+func (x *GetStatusResponse) GetRtSize() int32 {
+	if x != nil {
+		return x.RtSize
 	}
 	return 0
 }
@@ -1313,6 +1321,230 @@ func (x *AddNodeResponse) GetPeersFound() int32 {
 	return 0
 }
 
+type GetDebugInfoRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDebugInfoRequest) Reset() {
+	*x = GetDebugInfoRequest{}
+	mi := &file_ensemble_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDebugInfoRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDebugInfoRequest) ProtoMessage() {}
+
+func (x *GetDebugInfoRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ensemble_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDebugInfoRequest.ProtoReflect.Descriptor instead.
+func (*GetDebugInfoRequest) Descriptor() ([]byte, []int) {
+	return file_ensemble_proto_rawDescGZIP(), []int{27}
+}
+
+type GetDebugInfoResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RtSize        int32                  `protobuf:"varint,1,opt,name=rt_size,json=rtSize,proto3" json:"rt_size,omitempty"`
+	RtPeers       []*DHTNode             `protobuf:"bytes,2,rep,name=rt_peers,json=rtPeers,proto3" json:"rt_peers,omitempty"`
+	Connections   []*PeerState           `protobuf:"bytes,3,rep,name=connections,proto3" json:"connections,omitempty"`
+	OnionAddr     string                 `protobuf:"bytes,4,opt,name=onion_addr,json=onionAddr,proto3" json:"onion_addr,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDebugInfoResponse) Reset() {
+	*x = GetDebugInfoResponse{}
+	mi := &file_ensemble_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDebugInfoResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDebugInfoResponse) ProtoMessage() {}
+
+func (x *GetDebugInfoResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ensemble_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDebugInfoResponse.ProtoReflect.Descriptor instead.
+func (*GetDebugInfoResponse) Descriptor() ([]byte, []int) {
+	return file_ensemble_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *GetDebugInfoResponse) GetRtSize() int32 {
+	if x != nil {
+		return x.RtSize
+	}
+	return 0
+}
+
+func (x *GetDebugInfoResponse) GetRtPeers() []*DHTNode {
+	if x != nil {
+		return x.RtPeers
+	}
+	return nil
+}
+
+func (x *GetDebugInfoResponse) GetConnections() []*PeerState {
+	if x != nil {
+		return x.Connections
+	}
+	return nil
+}
+
+func (x *GetDebugInfoResponse) GetOnionAddr() string {
+	if x != nil {
+		return x.OnionAddr
+	}
+	return ""
+}
+
+type DHTNode struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Address       string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	OnionAddr     string                 `protobuf:"bytes,2,opt,name=onion_addr,json=onionAddr,proto3" json:"onion_addr,omitempty"`
+	LastSeen      int64                  `protobuf:"varint,3,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"` // Unix millis
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DHTNode) Reset() {
+	*x = DHTNode{}
+	mi := &file_ensemble_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DHTNode) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DHTNode) ProtoMessage() {}
+
+func (x *DHTNode) ProtoReflect() protoreflect.Message {
+	mi := &file_ensemble_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DHTNode.ProtoReflect.Descriptor instead.
+func (*DHTNode) Descriptor() ([]byte, []int) {
+	return file_ensemble_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *DHTNode) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *DHTNode) GetOnionAddr() string {
+	if x != nil {
+		return x.OnionAddr
+	}
+	return ""
+}
+
+func (x *DHTNode) GetLastSeen() int64 {
+	if x != nil {
+		return x.LastSeen
+	}
+	return 0
+}
+
+type PeerState struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Address       string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	State         string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PeerState) Reset() {
+	*x = PeerState{}
+	mi := &file_ensemble_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PeerState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PeerState) ProtoMessage() {}
+
+func (x *PeerState) ProtoReflect() protoreflect.Message {
+	mi := &file_ensemble_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PeerState.ProtoReflect.Descriptor instead.
+func (*PeerState) Descriptor() ([]byte, []int) {
+	return file_ensemble_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *PeerState) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *PeerState) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *PeerState) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 type SubscribeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -1321,7 +1553,7 @@ type SubscribeRequest struct {
 
 func (x *SubscribeRequest) Reset() {
 	*x = SubscribeRequest{}
-	mi := &file_ensemble_proto_msgTypes[27]
+	mi := &file_ensemble_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1333,7 +1565,7 @@ func (x *SubscribeRequest) String() string {
 func (*SubscribeRequest) ProtoMessage() {}
 
 func (x *SubscribeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ensemble_proto_msgTypes[27]
+	mi := &file_ensemble_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1346,7 +1578,7 @@ func (x *SubscribeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribeRequest.ProtoReflect.Descriptor instead.
 func (*SubscribeRequest) Descriptor() ([]byte, []int) {
-	return file_ensemble_proto_rawDescGZIP(), []int{27}
+	return file_ensemble_proto_rawDescGZIP(), []int{31}
 }
 
 type DaemonEvent struct {
@@ -1359,7 +1591,7 @@ type DaemonEvent struct {
 
 func (x *DaemonEvent) Reset() {
 	*x = DaemonEvent{}
-	mi := &file_ensemble_proto_msgTypes[28]
+	mi := &file_ensemble_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1371,7 +1603,7 @@ func (x *DaemonEvent) String() string {
 func (*DaemonEvent) ProtoMessage() {}
 
 func (x *DaemonEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_ensemble_proto_msgTypes[28]
+	mi := &file_ensemble_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1384,7 +1616,7 @@ func (x *DaemonEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DaemonEvent.ProtoReflect.Descriptor instead.
 func (*DaemonEvent) Descriptor() ([]byte, []int) {
-	return file_ensemble_proto_rawDescGZIP(), []int{28}
+	return file_ensemble_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *DaemonEvent) GetType() string {
@@ -1411,14 +1643,15 @@ const file_ensemble_proto_rawDesc = "" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x1d\n" +
 	"\n" +
 	"public_key\x18\x02 \x01(\fR\tpublicKey\"\x12\n" +
-	"\x10GetStatusRequest\"\x8b\x01\n" +
+	"\x10GetStatusRequest\"\xa4\x01\n" +
 	"\x11GetStatusResponse\x12\x1b\n" +
 	"\ttor_state\x18\x01 \x01(\tR\btorState\x12\x1d\n" +
 	"\n" +
 	"peer_count\x18\x02 \x01(\x05R\tpeerCount\x12\x1d\n" +
 	"\n" +
 	"onion_addr\x18\x03 \x01(\tR\tonionAddr\x12\x1b\n" +
-	"\tuptime_ms\x18\x04 \x01(\x03R\buptimeMs\"\x15\n" +
+	"\tuptime_ms\x18\x04 \x01(\x03R\buptimeMs\x12\x17\n" +
+	"\art_size\x18\x05 \x01(\x05R\x06rtSize\"\x15\n" +
 	"\x13ListContactsRequest\"M\n" +
 	"\x14ListContactsResponse\x125\n" +
 	"\bcontacts\x18\x01 \x03(\v2\x19.ensemble.api.ContactInfoR\bcontacts\"\xd1\x01\n" +
@@ -1484,11 +1717,27 @@ const file_ensemble_proto_rawDesc = "" +
 	"\ronion_address\x18\x01 \x01(\tR\fonionAddress\"2\n" +
 	"\x0fAddNodeResponse\x12\x1f\n" +
 	"\vpeers_found\x18\x01 \x01(\x05R\n" +
-	"peersFound\"\x12\n" +
+	"peersFound\"\x15\n" +
+	"\x13GetDebugInfoRequest\"\xbb\x01\n" +
+	"\x14GetDebugInfoResponse\x12\x17\n" +
+	"\art_size\x18\x01 \x01(\x05R\x06rtSize\x120\n" +
+	"\brt_peers\x18\x02 \x03(\v2\x15.ensemble.api.DHTNodeR\artPeers\x129\n" +
+	"\vconnections\x18\x03 \x03(\v2\x17.ensemble.api.PeerStateR\vconnections\x12\x1d\n" +
+	"\n" +
+	"onion_addr\x18\x04 \x01(\tR\tonionAddr\"_\n" +
+	"\aDHTNode\x12\x18\n" +
+	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x1d\n" +
+	"\n" +
+	"onion_addr\x18\x02 \x01(\tR\tonionAddr\x12\x1b\n" +
+	"\tlast_seen\x18\x03 \x01(\x03R\blastSeen\"Q\n" +
+	"\tPeerState\x12\x18\n" +
+	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x14\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"\x12\n" +
 	"\x10SubscribeRequest\";\n" +
 	"\vDaemonEvent\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x18\n" +
-	"\apayload\x18\x02 \x01(\tR\apayload2\x98\t\n" +
+	"\apayload\x18\x02 \x01(\tR\apayload2\xef\t\n" +
 	"\x0fEnsembleService\x12R\n" +
 	"\vGetIdentity\x12 .ensemble.api.GetIdentityRequest\x1a!.ensemble.api.GetIdentityResponse\x12L\n" +
 	"\tGetStatus\x12\x1e.ensemble.api.GetStatusRequest\x1a\x1f.ensemble.api.GetStatusResponse\x12U\n" +
@@ -1505,7 +1754,8 @@ const file_ensemble_proto_rawDesc = "" +
 	"AcceptFile\x12\x1f.ensemble.api.AcceptFileRequest\x1a .ensemble.api.AcceptFileResponse\x12O\n" +
 	"\n" +
 	"RejectFile\x12\x1f.ensemble.api.RejectFileRequest\x1a .ensemble.api.RejectFileResponse\x12F\n" +
-	"\aAddNode\x12\x1c.ensemble.api.AddNodeRequest\x1a\x1d.ensemble.api.AddNodeResponse\x12H\n" +
+	"\aAddNode\x12\x1c.ensemble.api.AddNodeRequest\x1a\x1d.ensemble.api.AddNodeResponse\x12U\n" +
+	"\fGetDebugInfo\x12!.ensemble.api.GetDebugInfoRequest\x1a\".ensemble.api.GetDebugInfoResponse\x12H\n" +
 	"\tSubscribe\x12\x1e.ensemble.api.SubscribeRequest\x1a\x19.ensemble.api.DaemonEvent0\x01B#Z!github.com/boxsie/ensemble/api/pbb\x06proto3"
 
 var (
@@ -1520,7 +1770,7 @@ func file_ensemble_proto_rawDescGZIP() []byte {
 	return file_ensemble_proto_rawDescData
 }
 
-var file_ensemble_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_ensemble_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
 var file_ensemble_proto_goTypes = []any{
 	(*GetIdentityRequest)(nil),       // 0: ensemble.api.GetIdentityRequest
 	(*GetIdentityResponse)(nil),      // 1: ensemble.api.GetIdentityResponse
@@ -1549,44 +1799,52 @@ var file_ensemble_proto_goTypes = []any{
 	(*RejectFileResponse)(nil),       // 24: ensemble.api.RejectFileResponse
 	(*AddNodeRequest)(nil),           // 25: ensemble.api.AddNodeRequest
 	(*AddNodeResponse)(nil),          // 26: ensemble.api.AddNodeResponse
-	(*SubscribeRequest)(nil),         // 27: ensemble.api.SubscribeRequest
-	(*DaemonEvent)(nil),              // 28: ensemble.api.DaemonEvent
+	(*GetDebugInfoRequest)(nil),      // 27: ensemble.api.GetDebugInfoRequest
+	(*GetDebugInfoResponse)(nil),     // 28: ensemble.api.GetDebugInfoResponse
+	(*DHTNode)(nil),                  // 29: ensemble.api.DHTNode
+	(*PeerState)(nil),                // 30: ensemble.api.PeerState
+	(*SubscribeRequest)(nil),         // 31: ensemble.api.SubscribeRequest
+	(*DaemonEvent)(nil),              // 32: ensemble.api.DaemonEvent
 }
 var file_ensemble_proto_depIdxs = []int32{
 	6,  // 0: ensemble.api.ListContactsResponse.contacts:type_name -> ensemble.api.ContactInfo
-	0,  // 1: ensemble.api.EnsembleService.GetIdentity:input_type -> ensemble.api.GetIdentityRequest
-	2,  // 2: ensemble.api.EnsembleService.GetStatus:input_type -> ensemble.api.GetStatusRequest
-	4,  // 3: ensemble.api.EnsembleService.ListContacts:input_type -> ensemble.api.ListContactsRequest
-	7,  // 4: ensemble.api.EnsembleService.AddContact:input_type -> ensemble.api.AddContactRequest
-	9,  // 5: ensemble.api.EnsembleService.RemoveContact:input_type -> ensemble.api.RemoveContactRequest
-	11, // 6: ensemble.api.EnsembleService.Connect:input_type -> ensemble.api.ConnectRequest
-	13, // 7: ensemble.api.EnsembleService.AcceptConnection:input_type -> ensemble.api.AcceptConnectionRequest
-	15, // 8: ensemble.api.EnsembleService.RejectConnection:input_type -> ensemble.api.RejectConnectionRequest
-	17, // 9: ensemble.api.EnsembleService.SendMessage:input_type -> ensemble.api.SendMessageRequest
-	19, // 10: ensemble.api.EnsembleService.SendFile:input_type -> ensemble.api.SendFileRequest
-	21, // 11: ensemble.api.EnsembleService.AcceptFile:input_type -> ensemble.api.AcceptFileRequest
-	23, // 12: ensemble.api.EnsembleService.RejectFile:input_type -> ensemble.api.RejectFileRequest
-	25, // 13: ensemble.api.EnsembleService.AddNode:input_type -> ensemble.api.AddNodeRequest
-	27, // 14: ensemble.api.EnsembleService.Subscribe:input_type -> ensemble.api.SubscribeRequest
-	1,  // 15: ensemble.api.EnsembleService.GetIdentity:output_type -> ensemble.api.GetIdentityResponse
-	3,  // 16: ensemble.api.EnsembleService.GetStatus:output_type -> ensemble.api.GetStatusResponse
-	5,  // 17: ensemble.api.EnsembleService.ListContacts:output_type -> ensemble.api.ListContactsResponse
-	8,  // 18: ensemble.api.EnsembleService.AddContact:output_type -> ensemble.api.AddContactResponse
-	10, // 19: ensemble.api.EnsembleService.RemoveContact:output_type -> ensemble.api.RemoveContactResponse
-	12, // 20: ensemble.api.EnsembleService.Connect:output_type -> ensemble.api.ConnectResponse
-	14, // 21: ensemble.api.EnsembleService.AcceptConnection:output_type -> ensemble.api.AcceptConnectionResponse
-	16, // 22: ensemble.api.EnsembleService.RejectConnection:output_type -> ensemble.api.RejectConnectionResponse
-	18, // 23: ensemble.api.EnsembleService.SendMessage:output_type -> ensemble.api.SendMessageResponse
-	20, // 24: ensemble.api.EnsembleService.SendFile:output_type -> ensemble.api.TransferProgress
-	22, // 25: ensemble.api.EnsembleService.AcceptFile:output_type -> ensemble.api.AcceptFileResponse
-	24, // 26: ensemble.api.EnsembleService.RejectFile:output_type -> ensemble.api.RejectFileResponse
-	26, // 27: ensemble.api.EnsembleService.AddNode:output_type -> ensemble.api.AddNodeResponse
-	28, // 28: ensemble.api.EnsembleService.Subscribe:output_type -> ensemble.api.DaemonEvent
-	15, // [15:29] is the sub-list for method output_type
-	1,  // [1:15] is the sub-list for method input_type
-	1,  // [1:1] is the sub-list for extension type_name
-	1,  // [1:1] is the sub-list for extension extendee
-	0,  // [0:1] is the sub-list for field type_name
+	29, // 1: ensemble.api.GetDebugInfoResponse.rt_peers:type_name -> ensemble.api.DHTNode
+	30, // 2: ensemble.api.GetDebugInfoResponse.connections:type_name -> ensemble.api.PeerState
+	0,  // 3: ensemble.api.EnsembleService.GetIdentity:input_type -> ensemble.api.GetIdentityRequest
+	2,  // 4: ensemble.api.EnsembleService.GetStatus:input_type -> ensemble.api.GetStatusRequest
+	4,  // 5: ensemble.api.EnsembleService.ListContacts:input_type -> ensemble.api.ListContactsRequest
+	7,  // 6: ensemble.api.EnsembleService.AddContact:input_type -> ensemble.api.AddContactRequest
+	9,  // 7: ensemble.api.EnsembleService.RemoveContact:input_type -> ensemble.api.RemoveContactRequest
+	11, // 8: ensemble.api.EnsembleService.Connect:input_type -> ensemble.api.ConnectRequest
+	13, // 9: ensemble.api.EnsembleService.AcceptConnection:input_type -> ensemble.api.AcceptConnectionRequest
+	15, // 10: ensemble.api.EnsembleService.RejectConnection:input_type -> ensemble.api.RejectConnectionRequest
+	17, // 11: ensemble.api.EnsembleService.SendMessage:input_type -> ensemble.api.SendMessageRequest
+	19, // 12: ensemble.api.EnsembleService.SendFile:input_type -> ensemble.api.SendFileRequest
+	21, // 13: ensemble.api.EnsembleService.AcceptFile:input_type -> ensemble.api.AcceptFileRequest
+	23, // 14: ensemble.api.EnsembleService.RejectFile:input_type -> ensemble.api.RejectFileRequest
+	25, // 15: ensemble.api.EnsembleService.AddNode:input_type -> ensemble.api.AddNodeRequest
+	27, // 16: ensemble.api.EnsembleService.GetDebugInfo:input_type -> ensemble.api.GetDebugInfoRequest
+	31, // 17: ensemble.api.EnsembleService.Subscribe:input_type -> ensemble.api.SubscribeRequest
+	1,  // 18: ensemble.api.EnsembleService.GetIdentity:output_type -> ensemble.api.GetIdentityResponse
+	3,  // 19: ensemble.api.EnsembleService.GetStatus:output_type -> ensemble.api.GetStatusResponse
+	5,  // 20: ensemble.api.EnsembleService.ListContacts:output_type -> ensemble.api.ListContactsResponse
+	8,  // 21: ensemble.api.EnsembleService.AddContact:output_type -> ensemble.api.AddContactResponse
+	10, // 22: ensemble.api.EnsembleService.RemoveContact:output_type -> ensemble.api.RemoveContactResponse
+	12, // 23: ensemble.api.EnsembleService.Connect:output_type -> ensemble.api.ConnectResponse
+	14, // 24: ensemble.api.EnsembleService.AcceptConnection:output_type -> ensemble.api.AcceptConnectionResponse
+	16, // 25: ensemble.api.EnsembleService.RejectConnection:output_type -> ensemble.api.RejectConnectionResponse
+	18, // 26: ensemble.api.EnsembleService.SendMessage:output_type -> ensemble.api.SendMessageResponse
+	20, // 27: ensemble.api.EnsembleService.SendFile:output_type -> ensemble.api.TransferProgress
+	22, // 28: ensemble.api.EnsembleService.AcceptFile:output_type -> ensemble.api.AcceptFileResponse
+	24, // 29: ensemble.api.EnsembleService.RejectFile:output_type -> ensemble.api.RejectFileResponse
+	26, // 30: ensemble.api.EnsembleService.AddNode:output_type -> ensemble.api.AddNodeResponse
+	28, // 31: ensemble.api.EnsembleService.GetDebugInfo:output_type -> ensemble.api.GetDebugInfoResponse
+	32, // 32: ensemble.api.EnsembleService.Subscribe:output_type -> ensemble.api.DaemonEvent
+	18, // [18:33] is the sub-list for method output_type
+	3,  // [3:18] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_ensemble_proto_init() }
@@ -1600,7 +1858,7 @@ func file_ensemble_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ensemble_proto_rawDesc), len(file_ensemble_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   29,
+			NumMessages:   33,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

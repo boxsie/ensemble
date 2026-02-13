@@ -24,13 +24,13 @@ Discovery:     App-level Kademlia DHT over Tor + mDNS
 
 ## Deployment
 
-Single binary: `ensemble` (daemon+TUI) | `ensemble --headless` (daemon only) | `ensemble attach` (TUI→remote daemon)
+Single binary: `ensemble` (daemon+TUI) | `ensemble --headless` (daemon only) | `ensemble attach` (TUI→remote daemon) | `ensemble debug` (CLI diagnostics)
 
 ## Project Structure
 
 ```
 ensemble/
-  main.go                             Entry point (daemon/TUI/attach)
+  main.go                             Entry point (daemon/TUI/attach/debug)
   Makefile                            Build, test, proto, cross-compile
   api/proto/ensemble.proto            gRPC service definition (public API)
   internal/
@@ -47,6 +47,7 @@ ensemble/
     contacts/                         Contact store
     node/                             Core orchestrator, event bus
     ui/                               Bubble Tea TUI and screens
+    ui/screens/debug.go               Debug/diagnostics screen
   testutil/                           Shared test helpers
 ```
 
@@ -57,6 +58,31 @@ ensemble/
 - **Event streaming**: Bubble Tea uses a channel-based pattern — `eventChanMsg` delivers the channel, `waitForEvent` reads one event at a time, each handler returns a new `waitForEvent` cmd to chain reads.
 - **Tor integration**: Uses external `tor` binary via bine's `process.NewCreator(torPath)`. No CGO needed. System torrc interference avoided by passing `--defaults-torrc <empty-file>` in ExtraArgs.
 - **Subsystem wiring**: Discovery, signaling, and connector are initialized in the daemon's `wireSubsystems` callback after Tor is ready. Adapter types bridge between packages (e.g. `torDialerAdapter`, `discoveryFinderAdapter`).
+
+## Discovery & Announce
+
+- **Auto-announce after bootstrap**: `Manager.AddNode()` calls `Announce()` after `Bootstrap()` populates the routing table, so discovered peers learn about us. This was the core bug — without it, two nodes bootstrapping from the same seed couldn't find each other.
+- **Startup announce**: `daemon.wireSubsystems()` announces immediately if the routing table has peers loaded from disk.
+- **Periodic re-announce**: `Manager.StartAnnounceLoop()` runs every 15 minutes, announcing to the DHT and saving the routing table to disk.
+- **Routing table persistence**: `Manager.SetRTPath()` sets the save path. RT is saved after bootstrap+announce and in the periodic loop. Loaded at startup in `wireSubsystems()`.
+
+## Observability
+
+### Logging
+- **DHT handlers**: `handleFindNode()` and `handlePutRecord()` log who asked and what was stored. `Bootstrap()`, `Announce()`, and `Lookup()` log start/success/failure with peer counts.
+- **Signaling**: `HandleEnvelope()` logs incoming requests, contact-gating decisions, and validation failures.
+
+### TUI
+- **Status bar**: Shows `dht:N` alongside `peers:N` and `tor:STATE`. RTSize flows through the full chain: `Manager.RTSize()` → `Node.RTSize()` → `GetStatus` gRPC → Backend → TUI status bar.
+- **Connection states per contact**: `ContactItem.Status` field shows connection state (e.g. "discovering...", "signaling...") in amber, overriding the online/offline indicator. Populated from `EventConnectionState` events.
+- **Debug screen** (`d` key from home): Shows full onion address, routing table peers (address + onion + last seen), and active connections with states. Data flows via `GetDebugInfo` Backend method.
+
+### gRPC
+- **`GetStatus`**: Now includes `rt_size` field (routing table size).
+- **`GetDebugInfo`**: New RPC returning routing table peers, active connections, and onion address. Proto messages: `GetDebugInfoRequest/Response`, `DHTNode`, `PeerState`.
+
+### CLI
+- **`ensemble debug [--addr|--socket]`**: Connects via gRPC, calls `GetDebugInfo`, prints routing table + connections to stdout. Useful for SSH debugging GCP seeds or local diagnostics without TUI.
 
 ## Security Design
 
@@ -85,4 +111,5 @@ make test-race      # Tests with race detector
 make test-integration  # Integration tests (requires Tor)
 make proto          # Regenerate protobuf Go code
 make build-all      # Cross-compile for all platforms
+ensemble debug --addr localhost:9090  # CLI diagnostics
 ```

@@ -26,6 +26,8 @@ type NodeProvider interface {
 	AcceptConnection(addr string) error
 	RejectConnection(addr string, reason string) error
 	PeerCount() int32
+	RTSize() int
+	GetDebugInfo() *node.DebugInfo
 	Contacts() *contacts.Store
 	ConnectionInfo(addr string) *transport.PeerConnection
 	ActiveConnections() []*transport.PeerConnection
@@ -67,7 +69,31 @@ func (s *Server) GetStatus(_ context.Context, _ *apipb.GetStatusRequest) (*apipb
 		TorState:  s.node.TorState(),
 		OnionAddr: s.node.OnionAddr(),
 		PeerCount: s.node.PeerCount(),
+		RtSize:    int32(s.node.RTSize()),
 	}, nil
+}
+
+func (s *Server) GetDebugInfo(_ context.Context, _ *apipb.GetDebugInfoRequest) (*apipb.GetDebugInfoResponse, error) {
+	info := s.node.GetDebugInfo()
+	resp := &apipb.GetDebugInfoResponse{
+		RtSize:    int32(info.RTSize),
+		OnionAddr: info.OnionAddr,
+	}
+	for _, p := range info.RTPeers {
+		resp.RtPeers = append(resp.RtPeers, &apipb.DHTNode{
+			Address:  p.Address,
+			OnionAddr: p.OnionAddr,
+			LastSeen: p.LastSeen,
+		})
+	}
+	for _, c := range info.Connections {
+		resp.Connections = append(resp.Connections, &apipb.PeerState{
+			Address: c.Address,
+			State:   c.State,
+			Error:   c.Error,
+		})
+	}
+	return resp, nil
 }
 
 // Subscribe streams events from the event bus to the gRPC client.

@@ -417,6 +417,53 @@ func TestSaveLoad_MostRecentFirst(t *testing.T) {
 	}
 }
 
+func TestAllPeers_Empty(t *testing.T) {
+	lid, _ := localID(t)
+	rt := NewRoutingTable(lid)
+
+	peers := rt.AllPeers()
+	if len(peers) != 0 {
+		t.Fatalf("expected 0 peers, got %d", len(peers))
+	}
+}
+
+func TestAllPeers_ReturnsCopy(t *testing.T) {
+	lid, _ := localID(t)
+	rt := NewRoutingTable(lid)
+
+	p1 := generateTestPeer(t)
+	p2 := generateTestPeer(t)
+	p3 := generateTestPeer(t)
+	rt.AddPeer(p1, p1.ID)
+	rt.AddPeer(p2, p2.ID)
+	rt.AddPeer(p3, p3.ID)
+
+	peers := rt.AllPeers()
+	if len(peers) != 3 {
+		t.Fatalf("expected 3 peers, got %d", len(peers))
+	}
+
+	// Verify all original addresses are present.
+	addrs := make(map[string]bool)
+	for _, p := range peers {
+		addrs[p.Address] = true
+	}
+	for _, p := range []*PeerInfo{p1, p2, p3} {
+		if !addrs[p.Address] {
+			t.Fatalf("missing peer %s", p.Address)
+		}
+	}
+
+	// Mutating returned slice should not affect routing table.
+	peers[0].OnionAddr = "mutated.onion"
+	rtPeers := rt.AllPeers()
+	for _, p := range rtPeers {
+		if p.OnionAddr == "mutated.onion" {
+			t.Fatal("AllPeers should return copies, not pointers to internal data")
+		}
+	}
+}
+
 func TestConcurrentAddPeer(t *testing.T) {
 	lid, _ := localID(t)
 	rt := NewRoutingTable(lid)

@@ -45,6 +45,8 @@ func (m *mockNode) SendFile(_ context.Context, _, _ string) (string, error) {
 }
 func (m *mockNode) AcceptFile(_, _ string) error  { return fmt.Errorf("not implemented") }
 func (m *mockNode) RejectFile(_, _ string) error  { return fmt.Errorf("not implemented") }
+func (m *mockNode) RTSize() int                     { return 0 }
+func (m *mockNode) GetDebugInfo() *node.DebugInfo    { return &node.DebugInfo{} }
 func (m *mockNode) AddNode(_ context.Context, _ string) (int, error) { return 0, fmt.Errorf("not implemented") }
 
 func newMockNode(t *testing.T) *mockNode {
@@ -117,6 +119,35 @@ func TestDirectSubscribe(t *testing.T) {
 	}
 }
 
+func TestDirectGetStatus_RTSize(t *testing.T) {
+	mn := newMockNode(t)
+	b := NewDirectBackend(mn)
+
+	status, err := b.GetStatus(context.Background())
+	if err != nil {
+		t.Fatalf("GetStatus() error: %v", err)
+	}
+	if status.RTSize != 0 {
+		t.Fatalf("RTSize: got %d, want 0", status.RTSize)
+	}
+}
+
+func TestDirectGetDebugInfo(t *testing.T) {
+	mn := newMockNode(t)
+	b := NewDirectBackend(mn)
+
+	info, err := b.GetDebugInfo(context.Background())
+	if err != nil {
+		t.Fatalf("GetDebugInfo() error: %v", err)
+	}
+	if info == nil {
+		t.Fatal("GetDebugInfo should return non-nil")
+	}
+	if info.RTSize != 0 {
+		t.Fatalf("RTSize: got %d, want 0", info.RTSize)
+	}
+}
+
 func TestDirectClose(t *testing.T) {
 	mn := newMockNode(t)
 	b := NewDirectBackend(mn)
@@ -143,7 +174,7 @@ func TestGRPCGetIdentity(t *testing.T) {
 	}
 	defer d.Stop()
 
-	b, err := NewGRPCBackend("unix://" + sock)
+	b, err := NewGRPCBackend("unix://"+sock, nil)
 	if err != nil {
 		t.Fatalf("NewGRPCBackend() error: %v", err)
 	}
@@ -183,7 +214,7 @@ func TestGRPCGetStatus(t *testing.T) {
 	}
 	defer d.Stop()
 
-	b, err := NewGRPCBackend("unix://" + sock)
+	b, err := NewGRPCBackend("unix://"+sock, nil)
 	if err != nil {
 		t.Fatalf("NewGRPCBackend() error: %v", err)
 	}
@@ -202,6 +233,84 @@ func TestGRPCGetStatus(t *testing.T) {
 	}
 }
 
+func TestGRPCGetStatus_RTSize(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "test.sock")
+
+	d := daemon.New(daemon.Config{
+		DataDir:    dir,
+		SocketPath: sock,
+		DisableTor: true,
+		DisableP2P: true,
+	})
+	if err := d.Start(); err != nil {
+		t.Fatalf("daemon Start() error: %v", err)
+	}
+	defer d.Stop()
+
+	b, err := NewGRPCBackend("unix://"+sock, nil)
+	if err != nil {
+		t.Fatalf("NewGRPCBackend() error: %v", err)
+	}
+	defer b.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	status, err := b.GetStatus(ctx)
+	if err != nil {
+		t.Fatalf("GetStatus() error: %v", err)
+	}
+
+	// No discovery initialized (DisableTor), so RTSize should be 0.
+	if status.RTSize != 0 {
+		t.Fatalf("RTSize: got %d, want 0", status.RTSize)
+	}
+}
+
+func TestGRPCGetDebugInfo(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "test.sock")
+
+	d := daemon.New(daemon.Config{
+		DataDir:    dir,
+		SocketPath: sock,
+		DisableTor: true,
+		DisableP2P: true,
+	})
+	if err := d.Start(); err != nil {
+		t.Fatalf("daemon Start() error: %v", err)
+	}
+	defer d.Stop()
+
+	b, err := NewGRPCBackend("unix://"+sock, nil)
+	if err != nil {
+		t.Fatalf("NewGRPCBackend() error: %v", err)
+	}
+	defer b.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	info, err := b.GetDebugInfo(ctx)
+	if err != nil {
+		t.Fatalf("GetDebugInfo() error: %v", err)
+	}
+
+	if info == nil {
+		t.Fatal("GetDebugInfo should return non-nil")
+	}
+	if info.RTSize != 0 {
+		t.Fatalf("RTSize: got %d, want 0", info.RTSize)
+	}
+	if len(info.RTPeers) != 0 {
+		t.Fatalf("RTPeers: got %d, want 0", len(info.RTPeers))
+	}
+	if len(info.Connections) != 0 {
+		t.Fatalf("Connections: got %d, want 0", len(info.Connections))
+	}
+}
+
 func TestGRPCSubscribe(t *testing.T) {
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "test.sock")
@@ -217,7 +326,7 @@ func TestGRPCSubscribe(t *testing.T) {
 	}
 	defer d.Stop()
 
-	b, err := NewGRPCBackend("unix://" + sock)
+	b, err := NewGRPCBackend("unix://"+sock, nil)
 	if err != nil {
 		t.Fatalf("NewGRPCBackend() error: %v", err)
 	}

@@ -22,6 +22,7 @@ type StatusBar struct {
 	TorState  string
 	OnionAddr string
 	PeerCount int32
+	RTSize    int32
 	Width     int
 }
 
@@ -56,7 +57,8 @@ func (s StatusBar) View() string {
 
 	tor := torLabelStyle.Foreground(torColor).Render(fmt.Sprintf("tor:%s", s.TorState))
 	peers := fmt.Sprintf("peers:%d", s.PeerCount)
-	left := statusBarStyle.Render(fmt.Sprintf(" %s  %s  %s", addr, tor, peers))
+	dht := fmt.Sprintf("dht:%d", s.RTSize)
+	left := statusBarStyle.Render(fmt.Sprintf(" %s  %s  %s  %s", addr, tor, peers, dht))
 
 	rightText := "ensemble"
 	right := statusBarStyle.Render(rightText)

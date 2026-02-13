@@ -35,6 +35,7 @@ type ContactItem struct {
 	Address string
 	Alias   string
 	Online  bool
+	Status  string // connection state (e.g. "discovering...", "signaling...")
 }
 
 // Home is the main contact list screen.
@@ -90,9 +91,13 @@ func (h Home) View() string {
 				cursor = "> "
 				name = homeSelected.Render(name)
 			}
-			status := homeKeyDesc.Render("offline")
-			if c.Online {
+			var status string
+			if c.Status != "" {
+				status = lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBF24")).Render(c.Status)
+			} else if c.Online {
 				status = lipgloss.NewStyle().Foreground(lipgloss.Color("#34D399")).Render("online")
+			} else {
+				status = homeKeyDesc.Render("offline")
 			}
 			fmt.Fprintf(&b, "%s%s  %s\n", cursor, name, status)
 		}
@@ -105,10 +110,11 @@ func (h Home) View() string {
 			homeKey.Render("f"), homeKeyDesc.Render("send file"),
 		)
 	}
-	fmt.Fprintf(&b, "%s %s  %s %s  %s %s  %s %s  %s %s",
+	fmt.Fprintf(&b, "%s %s  %s %s  %s %s  %s %s  %s %s  %s %s",
 		homeKey.Render("a"), homeKeyDesc.Render("add contact"),
 		homeKey.Render("n"), homeKeyDesc.Render("add node"),
 		homeKey.Render("t"), homeKeyDesc.Render("transfers"),
+		homeKey.Render("d"), homeKeyDesc.Render("debug"),
 		homeKey.Render("s"), homeKeyDesc.Render("settings"),
 		homeKey.Render("q"), homeKeyDesc.Render("quit"),
 	)

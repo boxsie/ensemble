@@ -18,6 +18,7 @@ ZONE="europe-west1-b"
 VM_NAME="ensemble-seed"
 REPO_NAME="ensemble"
 IMAGE_NAME="ensemble"
+ADMIN_KEY="${ENSEMBLE_ADMIN_KEY:-}"
 UPDATE=false
 
 usage() {
@@ -29,6 +30,7 @@ Options:
   --region REGION  Artifact Registry region (default: ${REGION})
   --zone ZONE      GCE zone (default: ${ZONE})
   --vm-name NAME   VM instance name (default: ${VM_NAME})
+  --admin-key KEY    Shared secret for gRPC auth (or ENSEMBLE_ADMIN_KEY env)
   --update         Update existing VM instead of creating new one
   -h, --help       Show this help
 EOF
@@ -42,6 +44,7 @@ while [[ $# -gt 0 ]]; do
         --region)   REGION="$2"; shift 2 ;;
         --zone)     ZONE="$2"; shift 2 ;;
         --vm-name)  VM_NAME="$2"; shift 2 ;;
+        --admin-key)  ADMIN_KEY="$2"; shift 2 ;;
         --update)   UPDATE=true; shift ;;
         -h|--help)  usage ;;
         *)          echo "Unknown option: $1"; usage ;;
@@ -58,6 +61,11 @@ if [[ -z "${PROJECT}" ]]; then
 fi
 
 IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT}/${REPO_NAME}/${IMAGE_NAME}:latest"
+
+if [[ -z "${ADMIN_KEY}" ]]; then
+    echo "Error: API key required. Use --admin-key or set ENSEMBLE_ADMIN_KEY"
+    exit 1
+fi
 
 echo "=== Ensemble Deploy ==="
 echo "Project:  ${PROJECT}"
@@ -121,6 +129,8 @@ chown 1000:1000 /home/ensemble/data
 docker run -d \
     --name ensemble \
     --restart unless-stopped \
+    -p 9090:9090 \
+    -e ENSEMBLE_ADMIN_KEY=${ADMIN_KEY} \
     -v /home/ensemble/data:/data \
     ${IMAGE_URI}
 SCRIPT
@@ -138,7 +148,7 @@ if ${UPDATE}; then
     gcloud compute ssh "${VM_NAME}" \
         --zone="${ZONE}" \
         --project="${PROJECT}" \
-        --command="sudo bash -c 'export HOME=/var/tmp && docker-credential-gcr configure-docker --registries=${REGION}-docker.pkg.dev && docker stop ensemble 2>/dev/null; docker rm ensemble 2>/dev/null; docker pull ${IMAGE_URI} && mkdir -p /home/ensemble/data && chown 1000:1000 /home/ensemble/data && docker run -d --name ensemble --restart unless-stopped -v /home/ensemble/data:/data ${IMAGE_URI}'"
+        --command="sudo bash -c 'export HOME=/var/tmp && docker-credential-gcr configure-docker --registries=${REGION}-docker.pkg.dev && docker stop ensemble 2>/dev/null; docker rm ensemble 2>/dev/null; docker pull ${IMAGE_URI} && mkdir -p /home/ensemble/data && chown 1000:1000 /home/ensemble/data && docker run -d --name ensemble --restart unless-stopped -p 9090:9090 -e ENSEMBLE_ADMIN_KEY=${ADMIN_KEY} -v /home/ensemble/data:/data ${IMAGE_URI}'"
 else
     # Create firewall rule for gRPC (idempotent)
     echo "--- Ensuring firewall rule ---"

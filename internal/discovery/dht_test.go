@@ -285,20 +285,23 @@ func TestDHT_Bootstrap_PopulatesRoutingTable(t *testing.T) {
 		t.Fatal("expected routing table to be populated after bootstrap")
 	}
 
-	// Verify the seed itself is NOT in the routing table (it's just a gateway).
+	// The seed includes itself in the FindNode response, so it should be in the RT.
 	closest := bootstrapper.dht.rt.FindClosest(seed.peer.ID, K)
+	foundSeed := false
 	for _, p := range closest {
 		if p.OnionAddr == seed.peer.OnionAddr && p.Address == seed.peer.Address {
-			// Seed might appear if it was returned in the FindNode response,
-			// but the bootstrap method only adds what the seed returns, not the seed itself.
+			foundSeed = true
 		}
+	}
+	if !foundSeed {
+		t.Fatal("expected seed to be in the routing table")
 	}
 }
 
 func TestDHT_Bootstrap_EmptySeed(t *testing.T) {
 	dialer := newTestDialer()
 
-	// Seed has no peers — returns empty response.
+	// Seed has no other peers, but includes itself in the response.
 	seed := createTestNode(t, dialer)
 	bootstrapper := createTestNode(t, dialer)
 
@@ -307,13 +310,14 @@ func TestDHT_Bootstrap_EmptySeed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
-	if n != 0 {
-		t.Fatalf("expected 0 peers from empty seed, got %d", n)
+	// Seed returns itself even with an empty RT, so bootstrapper learns the seed.
+	if n != 1 {
+		t.Fatalf("expected 1 peer (the seed itself) from empty seed, got %d", n)
 	}
 
-	// Should succeed but routing table stays empty.
-	if bootstrapper.dht.rt.Size() != 0 {
-		t.Fatalf("expected empty routing table from empty seed, got %d", bootstrapper.dht.rt.Size())
+	// Routing table should contain the seed.
+	if bootstrapper.dht.rt.Size() != 1 {
+		t.Fatalf("expected 1 peer in routing table (the seed), got %d", bootstrapper.dht.rt.Size())
 	}
 }
 

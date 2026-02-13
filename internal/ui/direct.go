@@ -25,6 +25,8 @@ type directNode interface {
 	AcceptConnection(addr string) error
 	RejectConnection(addr string, reason string) error
 	PeerCount() int32
+	RTSize() int
+	GetDebugInfo() *node.DebugInfo
 	Contacts() *contacts.Store
 	ConnectionInfo(addr string) *transport.PeerConnection
 	ActiveConnections() []*transport.PeerConnection
@@ -57,7 +59,31 @@ func (b *DirectBackend) GetStatus(_ context.Context) (*StatusInfo, error) {
 		TorState:  b.node.TorState(),
 		OnionAddr: b.node.OnionAddr(),
 		PeerCount: b.node.PeerCount(),
+		RTSize:    int32(b.node.RTSize()),
 	}, nil
+}
+
+func (b *DirectBackend) GetDebugInfo(_ context.Context) (*DebugInfo, error) {
+	info := b.node.GetDebugInfo()
+	di := &DebugInfo{
+		RTSize:    info.RTSize,
+		OnionAddr: info.OnionAddr,
+	}
+	for _, p := range info.RTPeers {
+		di.RTPeers = append(di.RTPeers, DebugPeer{
+			Address:   p.Address,
+			OnionAddr: p.OnionAddr,
+			LastSeen:  p.LastSeen,
+		})
+	}
+	for _, c := range info.Connections {
+		di.Connections = append(di.Connections, DebugConnection{
+			Address: c.Address,
+			State:   c.State,
+			Error:   c.Error,
+		})
+	}
+	return di, nil
 }
 
 func (b *DirectBackend) ListContacts(_ context.Context) ([]*contacts.Contact, error) {

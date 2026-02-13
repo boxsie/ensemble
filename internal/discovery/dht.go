@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"time"
 
@@ -49,17 +50,20 @@ func (d *DHTDiscovery) RT() *RoutingTable {
 }
 
 // Bootstrap dials a seed node and performs a FindNode(self) to populate the routing table.
-// The seed itself is not stored — it's used as a gateway to discover other peers.
-// Returns the number of new peers added to the routing table.
+// The seed includes itself in the response, so the caller always learns the seed's identity
+// and can later announce to it. Returns the number of new peers added to the routing table.
 func (d *DHTDiscovery) Bootstrap(ctx context.Context, onionAddr string) (int, error) {
+	log.Printf("dht: bootstrap starting (seed=%s)", onionAddr)
 	seed := &PeerInfo{OnionAddr: onionAddr}
 	peers, err := d.sendFindNode(ctx, seed, d.localPeer.ID)
 	if err != nil {
+		log.Printf("dht: bootstrap failed (seed=%s): %v", onionAddr, err)
 		return 0, fmt.Errorf("bootstrap find_node: %w", err)
 	}
 	for _, p := range peers {
 		d.rt.AddPeer(p, p.ID)
 	}
+	log.Printf("dht: bootstrap complete (seed=%s, peers_found=%d, rt_size=%d)", onionAddr, len(peers), d.rt.Size())
 	return len(peers), nil
 }
 
@@ -71,21 +75,26 @@ func (d *DHTDiscovery) Announce(ctx context.Context) error {
 		return fmt.Errorf("no peers in routing table to announce to")
 	}
 
+	log.Printf("dht: announcing to %d peers", len(closest))
 	var succeeded int
 	for _, peer := range closest {
 		if err := d.sendPutRecord(ctx, peer); err == nil {
 			succeeded++
+		} else {
+			log.Printf("dht: announce to %s failed: %v", peer.OnionAddr, err)
 		}
 	}
 	if succeeded == 0 {
 		return fmt.Errorf("announce failed: all %d peers unreachable", len(closest))
 	}
+	log.Printf("dht: announce complete (%d/%d succeeded)", succeeded, len(closest))
 	return nil
 }
 
 // Lookup performs an iterative DHT lookup for the given address.
 // Returns the PeerInfo if found, or an error if not found.
 func (d *DHTDiscovery) Lookup(ctx context.Context, addr string) (*PeerInfo, error) {
+	log.Printf("dht: lookup starting (addr=%s)", addr)
 	target, err := NodeIDFromAddress(addr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address: %w", err)
@@ -95,6 +104,7 @@ func (d *DHTDiscovery) Lookup(ctx context.Context, addr string) (*PeerInfo, erro
 	closest := d.rt.FindClosest(target, K)
 	for _, p := range closest {
 		if p.Address == addr && !d.isExpired(p) {
+			log.Printf("dht: lookup hit in local routing table (addr=%s, onion=%s)", addr, p.OnionAddr)
 			return p, nil
 		}
 	}
@@ -125,6 +135,7 @@ func (d *DHTDiscovery) Lookup(ctx context.Context, addr string) (*PeerInfo, erro
 
 			for _, found := range peers {
 				if found.Address == addr && !d.isExpired(found) {
+					log.Printf("dht: lookup found peer (addr=%s, onion=%s, queried=%d)", addr, found.OnionAddr, len(queried))
 					return found, nil
 				}
 				d.rt.AddPeer(found, peer.ID)
@@ -136,6 +147,7 @@ func (d *DHTDiscovery) Lookup(ctx context.Context, addr string) (*PeerInfo, erro
 		}
 	}
 
+	log.Printf("dht: lookup failed (addr=%s, queried=%d)", addr, len(queried))
 	return nil, fmt.Errorf("peer not found: %s", addr)
 }
 
@@ -173,6 +185,15 @@ func (d *DHTDiscovery) handleFindNode(conn net.Conn, env *pb.Envelope) {
 	}
 
 	closest := d.rt.FindClosest(target, K)
+
+	// Include ourselves in the response so the caller learns our identity.
+	// This is essential for bootstrap: if our RT is empty, the caller still
+	// gets at least one peer (us) to announce to.
+	self := *d.localPeer
+	self.LastSeen = time.Now()
+	closest = append(closest, &self)
+
+	log.Printf("dht: handleFindNode from=%s target=%s returning=%d", conn.RemoteAddr(), target, len(closest))
 	resp := peersToResponse(closest)
 	payload, err := proto.Marshal(resp)
 	if err != nil {
@@ -193,11 +214,13 @@ func (d *DHTDiscovery) handlePutRecord(conn net.Conn, env *pb.Envelope) {
 	}
 
 	if d.isExpired(peer) {
+		log.Printf("dht: handlePutRecord rejected expired record (addr=%s)", peer.Address)
 		return
 	}
 
 	// Store the record (source = the peer itself for self-announcements).
 	d.rt.AddPeer(peer, peer.ID)
+	log.Printf("dht: handlePutRecord stored (addr=%s, onion=%s, rt_size=%d)", peer.Address, peer.OnionAddr, d.rt.Size())
 
 	// Respond with closest peers to the announced node.
 	closest := d.rt.FindClosest(peer.ID, K)

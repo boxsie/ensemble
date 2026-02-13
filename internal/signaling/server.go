@@ -3,6 +3,7 @@ package signaling
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"sync"
 
@@ -112,16 +113,21 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 // HandleEnvelope processes a pre-read signaling envelope on an existing connection.
 func (s *Server) HandleEnvelope(ctx context.Context, conn net.Conn, env *pb.Envelope) {
 	if env.Type != pb.MessageType_CONN_REQUEST {
+		log.Printf("signaling: ignoring non-CONN_REQUEST envelope (type=%d)", env.Type)
 		return
 	}
 
 	req, err := ValidateConnRequest(env.Payload, s.nc)
 	if err != nil {
+		log.Printf("signaling: invalid CONN_REQUEST: %v", err)
 		return
 	}
 
+	log.Printf("signaling: CONN_REQUEST from=%s target=%s", req.FromAddress, req.TargetAddress)
+
 	// Verify this request is for us.
 	if req.TargetAddress != s.address {
+		log.Printf("signaling: rejecting request not for us (target=%s, us=%s)", req.TargetAddress, s.address)
 		return
 	}
 
@@ -132,11 +138,14 @@ func (s *Server) HandleEnvelope(ctx context.Context, conn net.Conn, env *pb.Enve
 	if c := s.contacts.Get(req.FromAddress); c != nil {
 		// Known contact — auto-accept.
 		accepted = true
+		log.Printf("signaling: auto-accepting known contact %s", req.FromAddress)
 	} else {
 		// Unknown — ask user.
+		log.Printf("signaling: asking user about unknown peer %s", req.FromAddress)
 		decision := s.askUser(req.FromAddress, ctx)
 		accepted = decision.Accepted
 		reason = decision.Reason
+		log.Printf("signaling: user decision for %s: accepted=%v reason=%q", req.FromAddress, accepted, reason)
 	}
 
 	// Step 2: Send ConnResponse.

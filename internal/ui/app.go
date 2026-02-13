@@ -30,6 +30,7 @@ const (
 	ScreenFileOffer
 	ScreenTransfer
 	ScreenAddNode
+	ScreenDebug
 )
 
 // identityLoadedMsg is sent when identity has been fetched from the backend.
@@ -43,6 +44,12 @@ type statusLoadedMsg struct {
 	TorState  string
 	PeerCount int32
 	OnionAddr string
+	RTSize    int32
+}
+
+// debugLoadedMsg is sent when debug info has been fetched from the backend.
+type debugLoadedMsg struct {
+	Info *DebugInfo
 }
 
 // contactsLoadedMsg is sent when contacts have been fetched from the backend.
@@ -102,6 +109,7 @@ type App struct {
 	filePicker    screens.FilePicker
 	fileOffer     screens.FileOfferPrompt
 	transfer      screens.Transfer
+	debug         screens.Debug
 	status        components.StatusBar
 	width         int
 	height        int
@@ -154,7 +162,16 @@ func (a App) loadStatus() tea.Msg {
 		TorState:  info.TorState,
 		PeerCount: info.PeerCount,
 		OnionAddr: info.OnionAddr,
+		RTSize:    info.RTSize,
 	}
+}
+
+func (a App) loadDebugInfo() tea.Msg {
+	info, err := a.backend.GetDebugInfo(context.Background())
+	if err != nil {
+		return debugLoadedMsg{}
+	}
+	return debugLoadedMsg{Info: info}
 }
 
 func (a App) loadContacts() tea.Msg {
@@ -232,6 +249,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statusLoadedMsg:
 		a.status.TorState = msg.TorState
 		a.status.PeerCount = msg.PeerCount
+		a.status.RTSize = msg.RTSize
 		if msg.TorState == "ready" || msg.TorState == "disabled" {
 			a.torReady = true
 			if a.maybeTransition() {
@@ -241,6 +259,29 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case contactsLoadedMsg:
 		a.home.Contacts = msg.Contacts
+		return a, nil
+
+	case debugLoadedMsg:
+		if msg.Info != nil {
+			a.debug.RTSize = msg.Info.RTSize
+			a.debug.OnionAddr = msg.Info.OnionAddr
+			a.debug.RTPeers = nil
+			for _, p := range msg.Info.RTPeers {
+				a.debug.RTPeers = append(a.debug.RTPeers, screens.DebugPeer{
+					Address:   p.Address,
+					OnionAddr: p.OnionAddr,
+					LastSeen:  p.LastSeen,
+				})
+			}
+			a.debug.Connections = nil
+			for _, c := range msg.Info.Connections {
+				a.debug.Connections = append(a.debug.Connections, screens.DebugConn{
+					Address: c.Address,
+					State:   c.State,
+					Error:   c.Error,
+				})
+			}
+		}
 		return a, nil
 
 	case contactSavedMsg:
@@ -514,6 +555,17 @@ func (a App) handleEvent(evt node.Event) (tea.Model, tea.Cmd) {
 			a.fileOffer.Height = a.height - 1
 		}
 
+	case node.EventConnectionState:
+		if se, ok := evt.Payload.(transport.StateEvent); ok {
+			stateStr := se.State.String()
+			for i := range a.home.Contacts {
+				if a.home.Contacts[i].Address == se.PeerAddr {
+					a.home.Contacts[i].Status = stateStr
+					break
+				}
+			}
+		}
+
 	case node.EventPeerOnline:
 		if status, ok := evt.Payload.(transport.OnlineStatus); ok {
 			for i := range a.home.Contacts {
@@ -559,6 +611,14 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.addNode.Reset()
 				a.screen = ScreenAddNode
 				return a, a.addNode.Init()
+			}
+		case msg.String() == "d":
+			if a.screen == ScreenHome {
+				a.debug = screens.NewDebug()
+				a.debug.Width = a.width
+				a.debug.Height = a.height - 1
+				a.screen = ScreenDebug
+				return a, a.loadDebugInfo
 			}
 		case msg.String() == "s":
 			if a.screen == ScreenHome {
@@ -664,6 +724,8 @@ func (a App) View() string {
 		content = a.fileOffer.View()
 	case ScreenTransfer:
 		content = a.transfer.View()
+	case ScreenDebug:
+		content = a.debug.View()
 	}
 
 	return content + "\n" + a.status.View()

@@ -19,6 +19,7 @@ type StatusInfo struct {
 	PeerCount int32
 	OnionAddr string
 	UptimeMs  int64
+	RTSize    int32
 }
 
 // FileProgress reports file transfer progress.
@@ -32,11 +33,34 @@ type FileProgress struct {
 	Error      string
 }
 
+// DebugInfo holds diagnostic information for the debug screen/CLI.
+type DebugInfo struct {
+	RTSize      int
+	RTPeers     []DebugPeer
+	Connections []DebugConnection
+	OnionAddr   string
+}
+
+// DebugPeer represents a peer in the routing table.
+type DebugPeer struct {
+	Address   string
+	OnionAddr string
+	LastSeen  int64 // Unix millis
+}
+
+// DebugConnection represents a connection state.
+type DebugConnection struct {
+	Address string
+	State   string
+	Error   string
+}
+
 // Backend abstracts daemon access so the TUI works identically
 // whether running in-process or attached to a remote daemon.
 type Backend interface {
 	GetIdentity(ctx context.Context) (*IdentityInfo, error)
 	GetStatus(ctx context.Context) (*StatusInfo, error)
+	GetDebugInfo(ctx context.Context) (*DebugInfo, error)
 	ListContacts(ctx context.Context) ([]*contacts.Contact, error)
 	AddContact(ctx context.Context, address, alias string, pubKey []byte) error
 	RemoveContact(ctx context.Context, address string) error

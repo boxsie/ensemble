@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 )
@@ -24,6 +25,7 @@ type Manager struct {
 	// Unified peer channel — deduplicated discovered peers.
 	peerCh chan *PeerInfo
 	seen   map[string]bool // address → already emitted
+	rtPath string          // routing table persistence path
 	mu     sync.Mutex
 }
 
@@ -114,7 +116,79 @@ func (m *Manager) AddNode(ctx context.Context, onionAddr string) (int, error) {
 	if m.dht == nil {
 		return 0, fmt.Errorf("DHT not initialized")
 	}
-	return m.dht.Bootstrap(ctx, onionAddr)
+	n, err := m.dht.Bootstrap(ctx, onionAddr)
+	if err != nil {
+		return 0, err
+	}
+
+	// Announce ourselves so discovered peers learn about us.
+	if announceErr := m.dht.Announce(ctx); announceErr != nil {
+		log.Printf("discovery: announce after bootstrap: %v", announceErr)
+	}
+
+	// Save routing table after bootstrap+announce.
+	m.mu.Lock()
+	rtPath := m.rtPath
+	m.mu.Unlock()
+	if rtPath != "" {
+		if saveErr := m.dht.RT().Save(rtPath); saveErr != nil {
+			log.Printf("discovery: save routing table: %v", saveErr)
+		}
+	}
+
+	return n, nil
+}
+
+// RTSize returns the number of peers in the routing table.
+func (m *Manager) RTSize() int {
+	if m.dht == nil {
+		return 0
+	}
+	return m.dht.RT().Size()
+}
+
+// ListPeers returns all peers from the routing table.
+func (m *Manager) ListPeers() []*PeerInfo {
+	if m.dht == nil {
+		return nil
+	}
+	return m.dht.RT().AllPeers()
+}
+
+// SetRTPath sets the routing table persistence path.
+func (m *Manager) SetRTPath(path string) {
+	m.mu.Lock()
+	m.rtPath = path
+	m.mu.Unlock()
+}
+
+// StartAnnounceLoop runs a background goroutine that announces to the DHT
+// and saves the routing table periodically. Stops when ctx is cancelled.
+func (m *Manager) StartAnnounceLoop(ctx context.Context) {
+	ticker := time.NewTicker(15 * time.Minute)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := m.dht.Announce(ctx); err != nil {
+					log.Printf("discovery: periodic announce: %v", err)
+				} else {
+					log.Printf("discovery: periodic announce succeeded (rt_size=%d)", m.dht.RT().Size())
+				}
+				m.mu.Lock()
+				rtPath := m.rtPath
+				m.mu.Unlock()
+				if rtPath != "" {
+					if err := m.dht.RT().Save(rtPath); err != nil {
+						log.Printf("discovery: save routing table: %v", err)
+					}
+				}
+			}
+		}
+	}()
 }
 
 // emitIfNew sends a peer to the unified channel if not already seen.

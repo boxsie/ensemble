@@ -32,6 +32,7 @@ const (
 	EnsembleService_AcceptFile_FullMethodName       = "/ensemble.api.EnsembleService/AcceptFile"
 	EnsembleService_RejectFile_FullMethodName       = "/ensemble.api.EnsembleService/RejectFile"
 	EnsembleService_AddNode_FullMethodName          = "/ensemble.api.EnsembleService/AddNode"
+	EnsembleService_GetDebugInfo_FullMethodName     = "/ensemble.api.EnsembleService/GetDebugInfo"
 	EnsembleService_Subscribe_FullMethodName        = "/ensemble.api.EnsembleService/Subscribe"
 )
 
@@ -58,6 +59,8 @@ type EnsembleServiceClient interface {
 	RejectFile(ctx context.Context, in *RejectFileRequest, opts ...grpc.CallOption) (*RejectFileResponse, error)
 	// Discovery
 	AddNode(ctx context.Context, in *AddNodeRequest, opts ...grpc.CallOption) (*AddNodeResponse, error)
+	// Debug
+	GetDebugInfo(ctx context.Context, in *GetDebugInfoRequest, opts ...grpc.CallOption) (*GetDebugInfoResponse, error)
 	// Events
 	Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DaemonEvent], error)
 }
@@ -209,6 +212,16 @@ func (c *ensembleServiceClient) AddNode(ctx context.Context, in *AddNodeRequest,
 	return out, nil
 }
 
+func (c *ensembleServiceClient) GetDebugInfo(ctx context.Context, in *GetDebugInfoRequest, opts ...grpc.CallOption) (*GetDebugInfoResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetDebugInfoResponse)
+	err := c.cc.Invoke(ctx, EnsembleService_GetDebugInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *ensembleServiceClient) Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DaemonEvent], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &EnsembleService_ServiceDesc.Streams[1], EnsembleService_Subscribe_FullMethodName, cOpts...)
@@ -251,6 +264,8 @@ type EnsembleServiceServer interface {
 	RejectFile(context.Context, *RejectFileRequest) (*RejectFileResponse, error)
 	// Discovery
 	AddNode(context.Context, *AddNodeRequest) (*AddNodeResponse, error)
+	// Debug
+	GetDebugInfo(context.Context, *GetDebugInfoRequest) (*GetDebugInfoResponse, error)
 	// Events
 	Subscribe(*SubscribeRequest, grpc.ServerStreamingServer[DaemonEvent]) error
 	mustEmbedUnimplementedEnsembleServiceServer()
@@ -301,6 +316,9 @@ func (UnimplementedEnsembleServiceServer) RejectFile(context.Context, *RejectFil
 }
 func (UnimplementedEnsembleServiceServer) AddNode(context.Context, *AddNodeRequest) (*AddNodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AddNode not implemented")
+}
+func (UnimplementedEnsembleServiceServer) GetDebugInfo(context.Context, *GetDebugInfoRequest) (*GetDebugInfoResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetDebugInfo not implemented")
 }
 func (UnimplementedEnsembleServiceServer) Subscribe(*SubscribeRequest, grpc.ServerStreamingServer[DaemonEvent]) error {
 	return status.Error(codes.Unimplemented, "method Subscribe not implemented")
@@ -553,6 +571,24 @@ func _EnsembleService_AddNode_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EnsembleService_GetDebugInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDebugInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EnsembleServiceServer).GetDebugInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EnsembleService_GetDebugInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EnsembleServiceServer).GetDebugInfo(ctx, req.(*GetDebugInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _EnsembleService_Subscribe_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(SubscribeRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -618,6 +654,10 @@ var EnsembleService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AddNode",
 			Handler:    _EnsembleService_AddNode_Handler,
+		},
+		{
+			MethodName: "GetDebugInfo",
+			Handler:    _EnsembleService_GetDebugInfo_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

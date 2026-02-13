@@ -32,6 +32,9 @@ service EnsembleService {
   // Discovery
   rpc AddNode(AddNodeRequest) returns (AddNodeResponse);
 
+  // Debug
+  rpc GetDebugInfo(GetDebugInfoRequest) returns (GetDebugInfoResponse);
+
   // Events
   rpc Subscribe(SubscribeRequest) returns (stream DaemonEvent);
 }
@@ -52,6 +55,7 @@ message GetStatusResponse {
   int32  peer_count  = 2;
   string onion_addr  = 3;
   int64  uptime_ms   = 4;
+  int32  rt_size     = 5; // routing table size
 }
 
 // --- Contacts ---
@@ -158,6 +162,29 @@ message AddNodeRequest {
 
 message AddNodeResponse {
   int32 peers_found = 1;
+}
+
+// --- Debug ---
+
+message GetDebugInfoRequest {}
+
+message GetDebugInfoResponse {
+  int32 rt_size             = 1;
+  repeated DHTNode rt_peers = 2;
+  repeated PeerState connections = 3;
+  string onion_addr         = 4;
+}
+
+message DHTNode {
+  string address    = 1;
+  string onion_addr = 2;
+  int64  last_seen  = 3; // Unix millis
+}
+
+message PeerState {
+  string address = 1;
+  string state   = 2;
+  string error   = 3;
 }
 
 // --- Events ---
