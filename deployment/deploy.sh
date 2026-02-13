@@ -73,7 +73,6 @@ echo "--- Enabling APIs ---"
 gcloud services enable \
     artifactregistry.googleapis.com \
     compute.googleapis.com \
-    cloudbuild.googleapis.com \
     --project="${PROJECT}" --quiet
 
 # Create Artifact Registry repo (idempotent)
@@ -87,20 +86,59 @@ gcloud artifacts repositories describe "${REPO_NAME}" \
     --project="${PROJECT}" \
     --quiet
 
-# Build and push via Cloud Build
-echo "--- Building image via Cloud Build ---"
-gcloud builds submit "${PROJECT_ROOT}" \
-    --tag="${IMAGE_URI}" \
-    --project="${PROJECT}" \
-    --quiet
+# Configure docker auth for Artifact Registry
+echo "--- Configuring docker auth ---"
+gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+# Build and push locally
+echo "--- Building image locally ---"
+docker build -f "${SCRIPT_DIR}/Dockerfile" -t "${IMAGE_URI}" "${PROJECT_ROOT}"
+
+echo "--- Pushing image ---"
+docker push "${IMAGE_URI}"
+
+# Startup script that pulls and runs the container on boot.
+STARTUP_SCRIPT="$(cat <<SCRIPT
+#!/bin/bash
+set -e
+
+# COS has a read-only root filesystem — docker-credential-gcr needs a writable HOME.
+export HOME=/var/tmp
+
+# Authenticate docker with Artifact Registry via VM service account.
+docker-credential-gcr configure-docker --registries=${REGION}-docker.pkg.dev
+
+# Pull latest image.
+docker pull ${IMAGE_URI}
+
+# Stop existing container if running.
+docker stop ensemble 2>/dev/null || true
+docker rm ensemble 2>/dev/null || true
+
+# Run container with persistent data volume (UID 1000 = ensemble user in container).
+mkdir -p /home/ensemble/data
+chown 1000:1000 /home/ensemble/data
+docker run -d \
+    --name ensemble \
+    --restart unless-stopped \
+    -v /home/ensemble/data:/data \
+    ${IMAGE_URI}
+SCRIPT
+)"
 
 if ${UPDATE}; then
-    # Update existing VM
-    echo "--- Updating VM container ---"
-    gcloud compute instances update-container "${VM_NAME}" \
+    # Update: push new startup script and re-run it via SSH.
+    echo "--- Updating VM ---"
+    gcloud compute instances add-metadata "${VM_NAME}" \
         --zone="${ZONE}" \
         --project="${PROJECT}" \
-        --container-image="${IMAGE_URI}"
+        --metadata=startup-script="${STARTUP_SCRIPT}"
+
+    echo "--- Restarting container ---"
+    gcloud compute ssh "${VM_NAME}" \
+        --zone="${ZONE}" \
+        --project="${PROJECT}" \
+        --command="sudo bash -c 'export HOME=/var/tmp && docker-credential-gcr configure-docker --registries=${REGION}-docker.pkg.dev && docker stop ensemble 2>/dev/null; docker rm ensemble 2>/dev/null; docker pull ${IMAGE_URI} && mkdir -p /home/ensemble/data && chown 1000:1000 /home/ensemble/data && docker run -d --name ensemble --restart unless-stopped -v /home/ensemble/data:/data ${IMAGE_URI}'"
 else
     # Create firewall rule for gRPC (idempotent)
     echo "--- Ensuring firewall rule ---"
@@ -113,19 +151,22 @@ else
         --source-ranges=0.0.0.0/0 \
         --quiet
 
-    # Create VM with container
+    # Create VM with COS image and startup script.
     echo "--- Creating VM ---"
-    gcloud compute instances create-with-container "${VM_NAME}" \
+    gcloud compute instances create "${VM_NAME}" \
         --project="${PROJECT}" \
         --zone="${ZONE}" \
         --machine-type=e2-micro \
-        --container-image="${IMAGE_URI}" \
-        --container-mount-host-path=mount-path=/data,host-path=/home/ensemble/data,mode=rw \
+        --image-family=cos-stable \
+        --image-project=cos-cloud \
         --tags=ensemble-seed \
+        --scopes=storage-ro \
+        --metadata=startup-script="${STARTUP_SCRIPT}" \
         --quiet
 fi
 
 echo ""
 echo "=== Deploy complete ==="
-echo "SSH:  gcloud compute ssh ${VM_NAME} --zone=${ZONE} --project=${PROJECT}"
-echo "Logs: gcloud compute ssh ${VM_NAME} --zone=${ZONE} --project=${PROJECT} -- docker logs \$(docker ps -q)"
+echo "SSH:   gcloud compute ssh ${VM_NAME} --zone=${ZONE} --project=${PROJECT}"
+echo "Logs:  gcloud compute ssh ${VM_NAME} --zone=${ZONE} --project=${PROJECT} -- docker logs ensemble"
+echo "Shell: gcloud compute ssh ${VM_NAME} --zone=${ZONE} --project=${PROJECT} -- docker exec -it ensemble sh"

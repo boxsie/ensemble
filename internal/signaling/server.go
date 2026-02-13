@@ -106,6 +106,11 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	if err != nil {
 		return
 	}
+	s.HandleEnvelope(ctx, conn, env)
+}
+
+// HandleEnvelope processes a pre-read signaling envelope on an existing connection.
+func (s *Server) HandleEnvelope(ctx context.Context, conn net.Conn, env *pb.Envelope) {
 	if env.Type != pb.MessageType_CONN_REQUEST {
 		return
 	}

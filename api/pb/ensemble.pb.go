@@ -1271,6 +1271,7 @@ func (x *AddNodeRequest) GetOnionAddress() string {
 
 type AddNodeResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	PeersFound    int32                  `protobuf:"varint,1,opt,name=peers_found,json=peersFound,proto3" json:"peers_found,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1303,6 +1304,13 @@ func (x *AddNodeResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use AddNodeResponse.ProtoReflect.Descriptor instead.
 func (*AddNodeResponse) Descriptor() ([]byte, []int) {
 	return file_ensemble_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *AddNodeResponse) GetPeersFound() int32 {
+	if x != nil {
+		return x.PeersFound
+	}
+	return 0
 }
 
 type SubscribeRequest struct {
@@ -1473,8 +1481,10 @@ const file_ensemble_proto_rawDesc = "" +
 	"transferId\"\x14\n" +
 	"\x12RejectFileResponse\"5\n" +
 	"\x0eAddNodeRequest\x12#\n" +
-	"\ronion_address\x18\x01 \x01(\tR\fonionAddress\"\x11\n" +
-	"\x0fAddNodeResponse\"\x12\n" +
+	"\ronion_address\x18\x01 \x01(\tR\fonionAddress\"2\n" +
+	"\x0fAddNodeResponse\x12\x1f\n" +
+	"\vpeers_found\x18\x01 \x01(\x05R\n" +
+	"peersFound\"\x12\n" +
 	"\x10SubscribeRequest\";\n" +
 	"\vDaemonEvent\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x18\n" +

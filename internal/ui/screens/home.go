@@ -105,8 +105,9 @@ func (h Home) View() string {
 			homeKey.Render("f"), homeKeyDesc.Render("send file"),
 		)
 	}
-	fmt.Fprintf(&b, "%s %s  %s %s  %s %s  %s %s",
+	fmt.Fprintf(&b, "%s %s  %s %s  %s %s  %s %s  %s %s",
 		homeKey.Render("a"), homeKeyDesc.Render("add contact"),
+		homeKey.Render("n"), homeKeyDesc.Render("add node"),
 		homeKey.Render("t"), homeKeyDesc.Render("transfers"),
 		homeKey.Render("s"), homeKeyDesc.Render("settings"),
 		homeKey.Render("q"), homeKeyDesc.Render("quit"),

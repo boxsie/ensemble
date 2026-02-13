@@ -43,18 +43,24 @@ func NewDHTDiscovery(rt *RoutingTable, localPeer *PeerInfo, dialer Dialer) *DHTD
 	}
 }
 
+// RT returns the underlying routing table.
+func (d *DHTDiscovery) RT() *RoutingTable {
+	return d.rt
+}
+
 // Bootstrap dials a seed node and performs a FindNode(self) to populate the routing table.
 // The seed itself is not stored — it's used as a gateway to discover other peers.
-func (d *DHTDiscovery) Bootstrap(ctx context.Context, onionAddr string) error {
+// Returns the number of new peers added to the routing table.
+func (d *DHTDiscovery) Bootstrap(ctx context.Context, onionAddr string) (int, error) {
 	seed := &PeerInfo{OnionAddr: onionAddr}
 	peers, err := d.sendFindNode(ctx, seed, d.localPeer.ID)
 	if err != nil {
-		return fmt.Errorf("bootstrap find_node: %w", err)
+		return 0, fmt.Errorf("bootstrap find_node: %w", err)
 	}
 	for _, p := range peers {
 		d.rt.AddPeer(p, p.ID)
 	}
-	return nil
+	return len(peers), nil
 }
 
 // Announce pushes our PeerRecord to the K closest nodes in the routing table.
@@ -142,6 +148,11 @@ func (d *DHTDiscovery) HandleConn(conn net.Conn) {
 		return
 	}
 
+	d.HandleEnvelope(conn, env)
+}
+
+// HandleEnvelope processes a pre-read DHT envelope on an existing connection.
+func (d *DHTDiscovery) HandleEnvelope(conn net.Conn, env *pb.Envelope) {
 	switch env.Type {
 	case pb.MessageType_DHT_FIND_NODE:
 		d.handleFindNode(conn, env)

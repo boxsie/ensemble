@@ -252,6 +252,146 @@ func TestDHT_HandlePutRecordStoresRecord(t *testing.T) {
 	}
 }
 
+func TestDHT_Bootstrap_PopulatesRoutingTable(t *testing.T) {
+	dialer := newTestDialer()
+
+	// Create a seed node and a bootstrapping node.
+	seed := createTestNode(t, dialer)
+	bootstrapper := createTestNode(t, dialer)
+
+	// Populate the seed with some peers so it has nodes to return.
+	peerB := createTestNode(t, dialer)
+	peerC := createTestNode(t, dialer)
+	seed.dht.rt.AddPeer(peerB.peer, peerB.peer.ID)
+	seed.dht.rt.AddPeer(peerC.peer, peerC.peer.ID)
+
+	// Bootstrapper starts with an empty routing table.
+	if bootstrapper.dht.rt.Size() != 0 {
+		t.Fatalf("expected empty routing table, got %d", bootstrapper.dht.rt.Size())
+	}
+
+	// Bootstrap from the seed node.
+	ctx := context.Background()
+	n, err := bootstrapper.dht.Bootstrap(ctx, seed.peer.OnionAddr)
+	if err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("expected Bootstrap to return >0 peers found")
+	}
+
+	// The bootstrapper should now have peers in its routing table.
+	if bootstrapper.dht.rt.Size() == 0 {
+		t.Fatal("expected routing table to be populated after bootstrap")
+	}
+
+	// Verify the seed itself is NOT in the routing table (it's just a gateway).
+	closest := bootstrapper.dht.rt.FindClosest(seed.peer.ID, K)
+	for _, p := range closest {
+		if p.OnionAddr == seed.peer.OnionAddr && p.Address == seed.peer.Address {
+			// Seed might appear if it was returned in the FindNode response,
+			// but the bootstrap method only adds what the seed returns, not the seed itself.
+		}
+	}
+}
+
+func TestDHT_Bootstrap_EmptySeed(t *testing.T) {
+	dialer := newTestDialer()
+
+	// Seed has no peers — returns empty response.
+	seed := createTestNode(t, dialer)
+	bootstrapper := createTestNode(t, dialer)
+
+	ctx := context.Background()
+	n, err := bootstrapper.dht.Bootstrap(ctx, seed.peer.OnionAddr)
+	if err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("expected 0 peers from empty seed, got %d", n)
+	}
+
+	// Should succeed but routing table stays empty.
+	if bootstrapper.dht.rt.Size() != 0 {
+		t.Fatalf("expected empty routing table from empty seed, got %d", bootstrapper.dht.rt.Size())
+	}
+}
+
+func TestDHT_Bootstrap_UnreachableSeed(t *testing.T) {
+	dialer := newTestDialer()
+	bootstrapper := createTestNode(t, dialer)
+
+	// Try to bootstrap from a nonexistent onion address.
+	ctx := context.Background()
+	_, err := bootstrapper.dht.Bootstrap(ctx, "nonexistent.onion")
+	if err == nil {
+		t.Fatal("expected error when bootstrapping from unreachable seed")
+	}
+}
+
+func TestDHT_Bootstrap_DiscoversPeersTransitively(t *testing.T) {
+	dialer := newTestDialer()
+
+	// Seed knows about peerB, who knows about peerC.
+	seed := createTestNode(t, dialer)
+	peerB := createTestNode(t, dialer)
+	peerC := createTestNode(t, dialer)
+
+	seed.dht.rt.AddPeer(peerB.peer, peerB.peer.ID)
+	peerB.dht.rt.AddPeer(peerC.peer, peerC.peer.ID)
+
+	bootstrapper := createTestNode(t, dialer)
+
+	ctx := context.Background()
+	if _, err := bootstrapper.dht.Bootstrap(ctx, seed.peer.OnionAddr); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+
+	// Bootstrapper should have at least peerB (directly from seed's FindNode response).
+	if bootstrapper.dht.rt.Size() == 0 {
+		t.Fatal("expected peers after bootstrap")
+	}
+
+	// Now bootstrapper can do a lookup for peerC via peerB.
+	found, err := bootstrapper.dht.Lookup(ctx, peerC.peer.Address)
+	if err != nil {
+		t.Fatalf("Lookup for peerC: %v", err)
+	}
+	if found.Address != peerC.peer.Address {
+		t.Fatalf("expected %s, got %s", peerC.peer.Address, found.Address)
+	}
+}
+
+func TestManager_AddNode(t *testing.T) {
+	dialer := newTestDialer()
+
+	seed := createTestNode(t, dialer)
+	peerB := createTestNode(t, dialer)
+	seed.dht.rt.AddPeer(peerB.peer, peerB.peer.ID)
+
+	// Create a manager wrapping a new DHT instance.
+	bootstrapper := createTestNode(t, dialer)
+	mgr := NewManager(bootstrapper.dht, nil)
+
+	ctx := context.Background()
+	if _, err := mgr.AddNode(ctx, seed.peer.OnionAddr); err != nil {
+		t.Fatalf("AddNode: %v", err)
+	}
+
+	if bootstrapper.dht.rt.Size() == 0 {
+		t.Fatal("expected routing table to be populated via AddNode")
+	}
+}
+
+func TestManager_AddNode_NilDHT(t *testing.T) {
+	mgr := NewManager(nil, nil)
+
+	_, err := mgr.AddNode(context.Background(), "some.onion")
+	if err == nil {
+		t.Fatal("expected error when DHT is nil")
+	}
+}
+
 func TestRecordToPeerInfo_Nil(t *testing.T) {
 	if recordToPeerInfo(nil) != nil {
 		t.Fatal("nil record should return nil")

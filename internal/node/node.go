@@ -154,12 +154,13 @@ func (n *Node) SetSignaling(server *signaling.Server, client *signaling.Client) 
 }
 
 // AddNode bootstraps discovery by dialing a known seed node's onion address.
-func (n *Node) AddNode(ctx context.Context, onionAddr string) error {
+// Returns the number of new peers discovered.
+func (n *Node) AddNode(ctx context.Context, onionAddr string) (int, error) {
 	n.mu.RLock()
 	disc := n.discovery
 	n.mu.RUnlock()
 	if disc == nil {
-		return fmt.Errorf("discovery not initialized")
+		return 0, fmt.Errorf("discovery not initialized")
 	}
 	return disc.AddNode(ctx, onionAddr)
 }

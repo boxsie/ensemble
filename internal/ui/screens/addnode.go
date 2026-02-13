@@ -18,6 +18,8 @@ type AddNodeSavedMsg struct {
 type AddNode struct {
 	onionInput textinput.Model
 	err        string
+	status     string
+	success    bool // true when showing a success message
 	Width      int
 	Height     int
 }
@@ -87,6 +89,15 @@ func (a AddNode) View() string {
 	b.WriteString(label.Render("Onion Address") + "\n")
 	b.WriteString(a.onionInput.View() + "\n\n")
 
+	if a.status != "" {
+		if a.success {
+			successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#34D399"))
+			b.WriteString(successStyle.Render(a.status) + "\n\n")
+		} else {
+			b.WriteString(hint.Render(a.status) + "\n\n")
+		}
+	}
+
 	if a.err != "" {
 		b.WriteString(errStyle.Render(a.err) + "\n\n")
 	}
@@ -101,9 +112,33 @@ func (a AddNode) View() string {
 	return b.String()
 }
 
+// SetStatus shows a status message (e.g. "Connecting...").
+func (a *AddNode) SetStatus(msg string) {
+	a.status = msg
+	a.success = false
+	a.err = ""
+}
+
+// SetSuccess shows a green success message.
+func (a *AddNode) SetSuccess(msg string) {
+	a.status = msg
+	a.success = true
+	a.err = ""
+	a.onionInput.Blur()
+}
+
+// SetError shows an error message.
+func (a *AddNode) SetError(msg string) {
+	a.err = msg
+	a.status = ""
+	a.success = false
+}
+
 // Reset clears the form for reuse.
 func (a *AddNode) Reset() {
 	a.onionInput.SetValue("")
 	a.onionInput.Focus()
 	a.err = ""
+	a.status = ""
+	a.success = false
 }

@@ -15,6 +15,8 @@ import (
 	"github.com/boxsie/ensemble/internal/filetransfer"
 	"github.com/boxsie/ensemble/internal/identity"
 	"github.com/boxsie/ensemble/internal/node"
+	"github.com/boxsie/ensemble/internal/protocol"
+	pb "github.com/boxsie/ensemble/internal/protocol/pb"
 	"github.com/boxsie/ensemble/internal/signaling"
 	"github.com/boxsie/ensemble/internal/tor"
 	"github.com/boxsie/ensemble/internal/transport"
@@ -245,14 +247,14 @@ func (d *Daemon) Stop() {
 	if d.p2pHost != nil {
 		d.p2pHost.Close()
 	}
+	if d.torCancel != nil {
+		d.torCancel()
+	}
 	if d.onionService != nil {
 		d.onionService.Close()
 	}
 	if d.torEngine != nil {
 		d.torEngine.Stop()
-	}
-	if d.torCancel != nil {
-		d.torCancel()
 	}
 	// Clean up Unix socket file.
 	if d.cfg.TCPAddr == "" {
@@ -298,10 +300,10 @@ func (d *Daemon) wireSubsystems(ctx context.Context, onionAddr string) {
 	sigClient := signaling.NewClient(kp, addr, dialAdapter)
 	d.node.SetSignaling(sigServer, sigClient)
 
-	// Start signaling server on the onion service listener.
+	// Multiplex onion service listener: route DHT and signaling messages.
 	if d.onionService != nil {
-		go sigServer.Serve(ctx, d.onionService.Listener())
-		log.Printf("signaling: server started on onion service")
+		go d.serveOnion(ctx, d.onionService.Listener(), dht, sigServer)
+		log.Printf("onion: multiplexer started (signaling + DHT)")
 	}
 
 	// Connection orchestrator (only if p2p host is available).
@@ -329,6 +331,36 @@ func (d *Daemon) wireSubsystems(ctx context.Context, onionAddr string) {
 			go conn.StartAutoReconnect(reconnCtx, d.presence)
 			log.Printf("reconnect: auto-reconnection started")
 		}
+	}
+}
+
+// serveOnion multiplexes the onion service listener between DHT and signaling.
+// Reads the first envelope from each connection and routes by message type.
+func (d *Daemon) serveOnion(ctx context.Context, ln net.Listener, dht *discovery.DHTDiscovery, sig *signaling.Server) {
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			select {
+			case <-ctx.Done():
+			default:
+			}
+			return
+		}
+		go func(c net.Conn) {
+			defer c.Close()
+
+			env, err := protocol.ReadMsg(c)
+			if err != nil {
+				return
+			}
+
+			switch env.Type {
+			case pb.MessageType_DHT_FIND_NODE, pb.MessageType_DHT_PUT_RECORD:
+				dht.HandleEnvelope(c, env)
+			case pb.MessageType_CONN_REQUEST:
+				sig.HandleEnvelope(ctx, c, env)
+			}
+		}(conn)
 	}
 }
 

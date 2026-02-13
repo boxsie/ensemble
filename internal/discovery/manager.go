@@ -109,9 +109,10 @@ func (m *Manager) PeerChan() <-chan *PeerInfo {
 }
 
 // AddNode bootstraps the DHT by dialing a known seed node's onion address.
-func (m *Manager) AddNode(ctx context.Context, onionAddr string) error {
+// Returns the number of new peers discovered.
+func (m *Manager) AddNode(ctx context.Context, onionAddr string) (int, error) {
 	if m.dht == nil {
-		return fmt.Errorf("DHT not initialized")
+		return 0, fmt.Errorf("DHT not initialized")
 	}
 	return m.dht.Bootstrap(ctx, onionAddr)
 }

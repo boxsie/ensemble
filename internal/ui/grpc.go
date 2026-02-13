@@ -207,12 +207,12 @@ var eventNameTypes = map[string]node.EventType{
 	"error":              node.EventError,
 }
 
-func (b *GRPCBackend) AddNode(ctx context.Context, onionAddr string) error {
-	_, err := b.client.AddNode(ctx, &apipb.AddNodeRequest{OnionAddress: onionAddr})
+func (b *GRPCBackend) AddNode(ctx context.Context, onionAddr string) (int, error) {
+	resp, err := b.client.AddNode(ctx, &apipb.AddNodeRequest{OnionAddress: onionAddr})
 	if err != nil {
-		return fmt.Errorf("adding node: %w", err)
+		return 0, fmt.Errorf("adding node: %w", err)
 	}
-	return nil
+	return int(resp.PeersFound), nil
 }
 
 func (b *GRPCBackend) Subscribe(ctx context.Context) (<-chan node.Event, error) {

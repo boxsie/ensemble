@@ -9,7 +9,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && \
     apt-get install -y --no-install-recommends tor ca-certificates && \
     rm -rf /var/lib/apt/lists/*
-RUN useradd -m -s /bin/sh ensemble
+RUN useradd -m -s /bin/sh -u 1000 ensemble
 COPY --from=builder /ensemble /usr/local/bin/ensemble
 RUN mkdir -p /data && chown ensemble:ensemble /data
 USER ensemble

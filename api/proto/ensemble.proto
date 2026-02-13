@@ -156,7 +156,9 @@ message AddNodeRequest {
   string onion_address = 1;
 }
 
-message AddNodeResponse {}
+message AddNodeResponse {
+  int32 peers_found = 1;
+}
 
 // --- Events ---
 

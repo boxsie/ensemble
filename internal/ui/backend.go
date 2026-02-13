@@ -47,7 +47,7 @@ type Backend interface {
 	SendFile(ctx context.Context, address, filePath string) (<-chan FileProgress, error)
 	AcceptFile(ctx context.Context, transferID, savePath string) error
 	RejectFile(ctx context.Context, transferID string) error
-	AddNode(ctx context.Context, onionAddr string) error
+	AddNode(ctx context.Context, onionAddr string) (peersFound int, err error)
 	Subscribe(ctx context.Context) (<-chan node.Event, error)
 	Close() error
 }

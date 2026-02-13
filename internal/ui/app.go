@@ -57,10 +57,13 @@ type contactSavedMsg struct{}
 type contactSaveErrMsg struct{ err error }
 
 // nodeSavedMsg signals a bootstrap node was added successfully.
-type nodeSavedMsg struct{}
+type nodeSavedMsg struct{ peersFound int }
 
 // nodeSaveErrMsg signals a bootstrap node add failed.
 type nodeSaveErrMsg struct{ err error }
+
+// nodeScreenDoneMsg signals the add-node success screen should close.
+type nodeScreenDoneMsg struct{}
 
 // connDecisionDoneMsg signals that accept/reject completed.
 type connDecisionDoneMsg struct{ err error }
@@ -255,13 +258,25 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.saveContact(msg.Address, msg.Alias)
 
 	case screens.AddNodeSavedMsg:
+		a.addNode.SetStatus("Connecting...")
 		return a, a.saveNode(msg.OnionAddr)
 
 	case nodeSavedMsg:
-		a.screen = ScreenHome
-		return a, nil
+		if msg.peersFound > 0 {
+			a.addNode.SetSuccess(fmt.Sprintf("Discovered %d peer(s). Returning home...", msg.peersFound))
+		} else {
+			a.addNode.SetSuccess("Connected but no peers found yet. Returning home...")
+		}
+		return a, tea.Tick(2*time.Second, func(time.Time) tea.Msg {
+			return nodeScreenDoneMsg{}
+		})
 
 	case nodeSaveErrMsg:
+		a.addNode.SetError(msg.err.Error())
+		return a, nil
+
+	case nodeScreenDoneMsg:
+		a.screen = ScreenHome
 		return a, nil
 
 	case screens.ConnAcceptedMsg:
@@ -380,10 +395,11 @@ func (a App) saveContact(addr, alias string) tea.Cmd {
 
 func (a App) saveNode(onionAddr string) tea.Cmd {
 	return func() tea.Msg {
-		if err := a.backend.AddNode(context.Background(), onionAddr); err != nil {
+		peersFound, err := a.backend.AddNode(context.Background(), onionAddr)
+		if err != nil {
 			return nodeSaveErrMsg{err: err}
 		}
-		return nodeSavedMsg{}
+		return nodeSavedMsg{peersFound: peersFound}
 	}
 }
 
