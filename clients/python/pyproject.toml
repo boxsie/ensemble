@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ensemble-client"
+version = "0.1.0"
+description = "Python client library for the Ensemble decentralized P2P daemon"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Ensemble" }]
+dependencies = [
+    "grpcio>=1.60",
+    "protobuf>=4.25",
+    "cryptography>=41.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "grpcio-tools>=1.60",
+    "pytest>=7.4",
+    "pytest-asyncio>=0.23",
+]
+
+[project.urls]
+Homepage = "https://github.com/boxsie/ensemble"
+Repository = "https://github.com/boxsie/ensemble"
+
+[tool.hatch.build]
+ignore-vcs = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["ensemble"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "ensemble",
+    "README.md",
+    "pyproject.toml",
+]
+
+[tool.black]
+line-length = 100
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

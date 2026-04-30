@@ -1,0 +1,167 @@
+syntax = "proto3";
+
+package ensemble.protocol;
+
+option go_package = "github.com/boxsie/ensemble/internal/protocol/pb";
+
+// --- Envelope ---
+
+enum MessageType {
+  MESSAGE_TYPE_UNSPECIFIED = 0;
+
+  // Signaling (3-step handshake)
+  CONN_REQUEST    = 1;  // step 1: addresses + nonce (no public keys)
+  CONN_RESPONSE   = 2;  // step 2: responder identity proof (if accepted)
+  CONN_CONFIRM    = 3;  // step 3: initiator identity proof
+  IP_EXCHANGE     = 4;  // post-handshake: direct connection addresses
+
+  // Chat
+  CHAT_TEXT       = 10;
+  CHAT_ACK        = 11;
+  CHAT_TYPING     = 12;
+
+  // File transfer
+  FILE_OFFER      = 20;
+  FILE_ACCEPT     = 21;
+  FILE_REJECT     = 22;
+  FILE_CHUNK      = 23;
+  FILE_CHUNK_ACK  = 24;
+  FILE_COMPLETE   = 25;
+  FILE_CANCEL     = 26;
+
+  // DHT
+  DHT_FIND_NODE     = 30;
+  DHT_NODE_RESPONSE = 31;
+  DHT_PUT_RECORD    = 32;
+
+  // Presence
+  PING = 40;
+  PONG = 41;
+}
+
+message Envelope {
+  MessageType type       = 1;
+  bytes       payload    = 2;
+  int64       timestamp  = 3; // Unix millis
+  bytes       pub_key    = 4; // sender's Ed25519 public key
+  bytes       signature  = 5; // Ed25519 signature over (type || payload || timestamp)
+}
+
+// --- Signaling (3-step handshake, quantum-resistant) ---
+// Public keys are never sent until contact verification.
+// Step 1: initiator sends addresses (hashes only) + nonce.
+// Step 2: responder proves identity (only if initiator is known contact or user accepts).
+// Step 3: initiator proves identity.
+
+message ConnRequest {
+  string from_address   = 1;  // initiator's ensemble address (hash, quantum-safe)
+  string target_address = 2;  // address of the peer we're trying to reach
+  bytes  nonce          = 3;  // 32-byte random challenge
+  int64  timestamp      = 4;  // Unix millis, for freshness check
+}
+
+message ConnResponse {
+  bool   accepted       = 1;  // false = rejected (pub_key/signature empty)
+  bytes  pub_key        = 2;  // responder's Ed25519 public key (only if accepted)
+  bytes  signature      = 3;  // sign(request_nonce) — proves ownership of target_address
+  bytes  nonce          = 4;  // responder's challenge for initiator
+  string reason         = 5;  // rejection reason (if !accepted)
+}
+
+message ConnConfirm {
+  bytes  pub_key        = 1;  // initiator's Ed25519 public key
+  bytes  signature      = 2;  // sign(response_nonce) — proves ownership of from_address
+}
+
+message IPExchangeMsg {
+  repeated string addrs = 1; // multiaddrs for direct connection
+}
+
+// --- Chat ---
+
+message ChatText {
+  string id   = 1; // unique message ID
+  string text = 2;
+}
+
+message ChatAck {
+  string message_id = 1;
+}
+
+message ChatTyping {}
+
+// --- File transfer ---
+
+message FileOffer {
+  string transfer_id = 1;
+  string filename    = 2;
+  uint64 size        = 3;
+  bytes  root_hash   = 4; // Merkle root
+  uint32 chunk_size  = 5;
+  uint32 chunk_count = 6;
+}
+
+message FileAccept {
+  string transfer_id = 1;
+}
+
+message FileReject {
+  string transfer_id = 1;
+  string reason      = 2;
+}
+
+message FileChunk {
+  string transfer_id = 1;
+  uint32 index       = 2;
+  bytes  data        = 3;
+  bytes  hash        = 4; // SHA-256 of this chunk
+  repeated bytes proof = 5; // Merkle proof (sibling hashes, leaf→root)
+}
+
+message FileChunkAck {
+  string transfer_id = 1;
+  uint32 index       = 2;
+  bool   valid       = 3; // true = chunk verified, false = needs retransmit
+}
+
+message FileComplete {
+  string transfer_id = 1;
+}
+
+message FileCancel {
+  string transfer_id = 1;
+  string reason      = 2;
+}
+
+// --- DHT ---
+
+message DHTFindNode {
+  bytes target = 1; // 20-byte node ID (RIPEMD-160 hash) to find
+}
+
+message DHTNodeResponse {
+  repeated PeerRecord peers = 1;
+}
+
+message DHTPutRecord {
+  PeerRecord record = 1;
+}
+
+// PeerRecord is hash-only by design — no public keys broadcast to the network.
+// This prevents quantum key harvesting. Trust is established at the signaling layer.
+message PeerRecord {
+  bytes  node_id       = 1;  // 20-byte RIPEMD-160(SHA-256(pubkey))
+  string address       = 2;  // ensemble Base58Check address (hash-based, quantum-safe)
+  string onion_address = 3;  // .onion address for signaling
+  int64  timestamp     = 4;  // Unix millis, for expiry (24h)
+}
+
+// --- Presence ---
+
+message Ping {
+  int64 timestamp = 1;
+}
+
+message Pong {
+  int64 echo_timestamp = 1; // echo back the ping's timestamp
+}
