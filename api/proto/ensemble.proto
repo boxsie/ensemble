@@ -1,0 +1,284 @@
+syntax = "proto3";
+
+package ensemble.api;
+
+option go_package = "github.com/boxsie/ensemble/api/pb";
+
+// --- Service ---
+
+service EnsembleService {
+  // Identity
+  rpc GetIdentity(GetIdentityRequest) returns (GetIdentityResponse);
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+
+  // Contacts
+  rpc ListContacts(ListContactsRequest) returns (ListContactsResponse);
+  rpc AddContact(AddContactRequest) returns (AddContactResponse);
+  rpc RemoveContact(RemoveContactRequest) returns (RemoveContactResponse);
+
+  // Connection
+  rpc Connect(ConnectRequest) returns (ConnectResponse);
+  rpc AcceptConnection(AcceptConnectionRequest) returns (AcceptConnectionResponse);
+  rpc RejectConnection(RejectConnectionRequest) returns (RejectConnectionResponse);
+
+  // Chat
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+
+  // File transfer
+  rpc SendFile(SendFileRequest) returns (stream TransferProgress);
+  rpc AcceptFile(AcceptFileRequest) returns (AcceptFileResponse);
+  rpc RejectFile(RejectFileRequest) returns (RejectFileResponse);
+
+  // Discovery
+  rpc AddNode(AddNodeRequest) returns (AddNodeResponse);
+
+  // Debug
+  rpc GetDebugInfo(GetDebugInfoRequest) returns (GetDebugInfoResponse);
+
+  // Events
+  rpc Subscribe(SubscribeRequest) returns (stream DaemonEvent);
+
+  // Service registration (multi-service platform)
+  rpc RegisterService(stream ServiceClientMessage) returns (stream ServiceServerMessage);
+}
+
+// --- Identity ---
+
+message GetIdentityRequest {}
+
+message GetIdentityResponse {
+  string address    = 1;
+  bytes  public_key = 2;
+}
+
+message GetStatusRequest {}
+
+message GetStatusResponse {
+  string tor_state   = 1; // "bootstrapping", "ready", "disabled"
+  int32  peer_count  = 2;
+  string onion_addr  = 3;
+  int64  uptime_ms   = 4;
+  int32  rt_size     = 5; // routing table size
+}
+
+// --- Contacts ---
+
+message ListContactsRequest {}
+
+message ListContactsResponse {
+  repeated ContactInfo contacts = 1;
+}
+
+message ContactInfo {
+  string address       = 1;
+  string alias         = 2;
+  bytes  public_key    = 3;
+  string onion_address = 4;
+  int64  added_at      = 5;  // Unix millis
+  int64  last_seen     = 6;  // Unix millis
+  bool   online        = 7;
+}
+
+message AddContactRequest {
+  string address    = 1;
+  string alias      = 2;
+  bytes  public_key = 3;
+}
+
+message AddContactResponse {}
+
+message RemoveContactRequest {
+  string address = 1;
+}
+
+message RemoveContactResponse {}
+
+// --- Connection ---
+
+message ConnectRequest {
+  string address = 1; // peer's ensemble address
+}
+
+message ConnectResponse {
+  bool   accepted = 1;
+  string message  = 2;
+}
+
+message AcceptConnectionRequest {
+  string address = 1; // requester's address
+}
+
+message AcceptConnectionResponse {}
+
+message RejectConnectionRequest {
+  string address = 1;
+}
+
+message RejectConnectionResponse {}
+
+// --- Chat ---
+
+message SendMessageRequest {
+  string address = 1; // recipient's address
+  string text    = 2;
+}
+
+message SendMessageResponse {
+  string message_id = 1;
+}
+
+// --- File transfer ---
+
+message SendFileRequest {
+  string address   = 1; // recipient's address
+  string file_path = 2;
+}
+
+message TransferProgress {
+  string transfer_id    = 1;
+  string filename       = 2;
+  uint64 total_bytes    = 3;
+  uint64 sent_bytes     = 4;
+  float  percent        = 5;
+  bool   complete       = 6;
+  string error          = 7;
+}
+
+message AcceptFileRequest {
+  string transfer_id = 1;
+  string save_path   = 2; // where to save the file
+}
+
+message AcceptFileResponse {}
+
+message RejectFileRequest {
+  string transfer_id = 1;
+}
+
+message RejectFileResponse {}
+
+// --- Discovery ---
+
+message AddNodeRequest {
+  string onion_address = 1;
+}
+
+message AddNodeResponse {
+  int32 peers_found = 1;
+}
+
+// --- Debug ---
+
+message GetDebugInfoRequest {}
+
+message GetDebugInfoResponse {
+  int32 rt_size             = 1;
+  repeated DHTNode rt_peers = 2;
+  repeated PeerState connections = 3;
+  string onion_addr         = 4;
+}
+
+message DHTNode {
+  string address    = 1;
+  string onion_addr = 2;
+  int64  last_seen  = 3; // Unix millis
+}
+
+message PeerState {
+  string address = 1;
+  string state   = 2;
+  string error   = 3;
+}
+
+// --- Events ---
+
+message SubscribeRequest {}
+
+message DaemonEvent {
+  string type    = 1; // event type name
+  string payload = 2; // JSON-encoded event data
+}
+
+// --- Service registration ---
+//
+// RegisterService is a bidirectional stream. The client sends a single
+// ServiceManifest first, then server replies with ServiceRegistered on
+// success (or ServiceError + closes the stream on failure). After that the
+// client sends action messages (send_message, accept, reject) and the server
+// streams ServiceEvent messages encoding inbound chat / connection requests.
+//
+// ServiceEvent.payload encoding: protobuf-encoded inner message keyed by
+// ServiceEvent.type. Concrete payload types live below as distinct messages
+// (ServiceChatMessageEvent, ServiceConnectionRequestEvent) for forward
+// compatibility — adding a new event type does not break existing clients
+// that only know the types they care about.
+
+message ServiceClientMessage {
+  oneof msg {
+    ServiceManifest         manifest     = 1; // first message only
+    ServiceSendMessage      send_message = 2;
+    ServiceAcceptConnection accept       = 3;
+    ServiceRejectConnection reject       = 4;
+  }
+}
+
+message ServiceServerMessage {
+  oneof msg {
+    ServiceRegistered registered = 1; // first message only, after manifest accepted
+    ServiceEvent      event      = 2;
+    ServiceError      error      = 3;
+  }
+}
+
+enum ACL {
+  ACL_PUBLIC    = 0;
+  ACL_CONTACTS  = 1;
+  ACL_ALLOWLIST = 2;
+}
+
+message ServiceManifest {
+  string          name        = 1; // slug-safe registry key
+  string          description = 2;
+  ACL             acl         = 3;
+  repeated string allowlist   = 4; // only meaningful when acl == ACL_ALLOWLIST
+  bytes           keypair_seed = 5; // optional, advisory; ignored if name already has a keypair
+}
+
+message ServiceRegistered {
+  string address = 1; // E… Bitcoin-style address
+  string onion   = 2; // .onion endpoint
+}
+
+message ServiceEvent {
+  string type    = 1; // "chat_message", "connection_request"
+  bytes  payload = 2; // protobuf-encoded payload (see ServiceChatMessageEvent etc.)
+}
+
+message ServiceChatMessageEvent {
+  string from_addr = 1;
+  string text      = 2;
+  int64  ts        = 3; // Unix millis
+}
+
+message ServiceConnectionRequestEvent {
+  string request_id = 1;
+  string from_addr  = 2;
+}
+
+message ServiceSendMessage {
+  string to_addr = 1;
+  string text    = 2;
+}
+
+message ServiceAcceptConnection {
+  string request_id = 1;
+}
+
+message ServiceRejectConnection {
+  string request_id = 1;
+  string reason     = 2;
+}
+
+message ServiceError {
+  string message = 1;
+}
