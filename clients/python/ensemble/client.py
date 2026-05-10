@@ -72,7 +72,15 @@ def _build_channel(
 
     if call_creds is not None:
         # Plaintext + per-RPC creds. grpc requires a "local" channel cred for this.
-        local_creds = grpc.local_channel_credentials()
+        # local_channel_credentials() defaults to LOCAL_TCP, which rejects UDS
+        # targets with "Endpoint is neither UDS or TCP loopback address". For
+        # unix sockets we must pass LocalConnectionType.UDS explicitly.
+        connect_type = (
+            grpc.LocalConnectionType.UDS
+            if socket_path
+            else grpc.LocalConnectionType.LOCAL_TCP
+        )
+        local_creds = grpc.local_channel_credentials(connect_type)
         composite = grpc.composite_channel_credentials(local_creds, call_creds)
         return grpc.aio.secure_channel(target, composite)
 
