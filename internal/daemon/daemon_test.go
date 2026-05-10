@@ -134,3 +134,65 @@ func TestSocketCleanedUpOnStop(t *testing.T) {
 		t.Fatal("socket file should be removed after Stop()")
 	}
 }
+
+// TestTCPAndSocketTogether verifies the daemon can serve gRPC on both a TCP
+// listener and a Unix socket simultaneously — required by the multi-service
+// pod shape (TCP for ingress, socket for in-pod sidecars).
+func TestTCPAndSocketTogether(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{
+		DataDir:    dir,
+		SocketPath: filepath.Join(dir, "test.sock"),
+		TCPAddr:    "127.0.0.1:0",
+		DisableTor: true,
+		DisableP2P: true,
+	}
+
+	d := New(cfg)
+	if err := d.Start(); err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+	defer d.Stop()
+
+	// Both listeners should be open.
+	if _, err := os.Stat(cfg.SocketPath); err != nil {
+		t.Fatalf("socket file should exist: %v", err)
+	}
+	if got := len(d.listeners); got != 2 {
+		t.Fatalf("expected 2 listeners (TCP + socket), got %d", got)
+	}
+
+	// gRPC works over the socket.
+	conn, err := grpc.NewClient(
+		"unix://"+cfg.SocketPath,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("dial socket: %v", err)
+	}
+	defer conn.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client := apipb.NewEnsembleServiceClient(conn)
+	if _, err := client.GetIdentity(ctx, &apipb.GetIdentityRequest{}); err != nil {
+		t.Fatalf("GetIdentity over socket: %v", err)
+	}
+
+	// gRPC also works over the TCP listener — pick up the actual listening
+	// address from the listener (we passed :0 to let the kernel choose).
+	tcpAddr := d.listeners[0].Addr().String()
+	tcpConn, err := grpc.NewClient(
+		tcpAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("dial TCP %s: %v", tcpAddr, err)
+	}
+	defer tcpConn.Close()
+
+	tcpClient := apipb.NewEnsembleServiceClient(tcpConn)
+	if _, err := tcpClient.GetIdentity(ctx, &apipb.GetIdentityRequest{}); err != nil {
+		t.Fatalf("GetIdentity over TCP: %v", err)
+	}
+}

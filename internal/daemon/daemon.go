@@ -42,7 +42,7 @@ type Daemon struct {
 	node            *node.Node
 	grpcServer      *grpc.Server
 	apiServer       *api.Server
-	listener        net.Listener
+	listeners       []net.Listener
 	keystore        *identity.Keystore
 	registry        *services.Registry
 	registryPtr     atomic.Pointer[services.Registry]
@@ -183,8 +183,10 @@ func (d *Daemon) Start() error {
 		return fmt.Errorf("starting listener: %w", err)
 	}
 
-	go d.grpcServer.Serve(d.listener)
-	log.Printf("gRPC server listening")
+	for _, lis := range d.listeners {
+		go d.grpcServer.Serve(lis)
+	}
+	log.Printf("gRPC server listening on %d listener(s)", len(d.listeners))
 
 	return nil
 }
@@ -292,8 +294,8 @@ func (d *Daemon) Stop() {
 	if d.grpcServer != nil {
 		d.grpcServer.GracefulStop()
 	}
-	if d.listener != nil {
-		d.listener.Close()
+	for _, lis := range d.listeners {
+		lis.Close()
 	}
 	if d.p2pHost != nil {
 		d.p2pHost.Close()
@@ -304,8 +306,8 @@ func (d *Daemon) Stop() {
 	if d.torEngine != nil {
 		d.torEngine.Stop()
 	}
-	// Clean up Unix socket file.
-	if d.cfg.TCPAddr == "" {
+	// Clean up Unix socket file (only if we actually opened one).
+	if d.cfg.SocketPath != "" {
 		os.Remove(d.cfg.SocketPath)
 	}
 }
@@ -545,26 +547,41 @@ func (a *discoveryFinderAdapter) FindPeer(ctx context.Context, addr string) (tra
 	}, nil
 }
 
-// listen starts the appropriate network listener.
+// listen starts the configured network listeners. TCP and Unix socket are
+// independent — either, both, or neither (the latter is an error). Both run
+// on the same gRPC server.
 func (d *Daemon) listen() error {
-	// TCP mode (for headless/remote).
+	var listeners []net.Listener
+	cleanup := func() {
+		for _, l := range listeners {
+			l.Close()
+		}
+	}
+
 	if d.cfg.TCPAddr != "" {
 		lis, err := net.Listen("tcp", d.cfg.TCPAddr)
 		if err != nil {
 			return fmt.Errorf("listening on TCP %s: %w", d.cfg.TCPAddr, err)
 		}
-		d.listener = lis
+		listeners = append(listeners, lis)
 		log.Printf("listening on TCP %s", d.cfg.TCPAddr)
-		return nil
 	}
 
-	// Unix socket mode (default).
-	os.Remove(d.cfg.SocketPath) // remove stale socket
-	lis, err := net.Listen("unix", d.cfg.SocketPath)
-	if err != nil {
-		return fmt.Errorf("listening on socket %s: %w", d.cfg.SocketPath, err)
+	if d.cfg.SocketPath != "" {
+		os.Remove(d.cfg.SocketPath) // remove stale socket
+		lis, err := net.Listen("unix", d.cfg.SocketPath)
+		if err != nil {
+			cleanup()
+			return fmt.Errorf("listening on socket %s: %w", d.cfg.SocketPath, err)
+		}
+		listeners = append(listeners, lis)
+		log.Printf("listening on socket %s", d.cfg.SocketPath)
 	}
-	d.listener = lis
-	log.Printf("listening on socket %s", d.cfg.SocketPath)
+
+	if len(listeners) == 0 {
+		return fmt.Errorf("no API listeners configured (set --api-addr or --api-socket)")
+	}
+
+	d.listeners = listeners
 	return nil
 }

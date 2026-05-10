@@ -46,6 +46,7 @@ func runDaemon(args []string) {
 	headless := fs.Bool("headless", false, "run daemon without TUI")
 	dataDir := fs.String("data-dir", "", "override data directory")
 	apiAddr := fs.String("api-addr", "", "TCP listen address for gRPC (headless mode)")
+	apiSocket := fs.String("api-socket", "", "Unix socket path for gRPC (combine with --api-addr to listen on both)")
 	adminKey := fs.String("admin-key", os.Getenv("ENSEMBLE_ADMIN_KEY"), "hex-encoded Ed25519 admin public key (or ENSEMBLE_ADMIN_KEY env)")
 	torPath := fs.String("tor-path", "", "path to tor binary (skip auto-download)")
 	fs.Parse(args)
@@ -57,6 +58,12 @@ func runDaemon(args []string) {
 	}
 	if *apiAddr != "" {
 		cfg.TCPAddr = *apiAddr
+		// Preserve historical behavior: --api-addr alone means TCP only.
+		// Operators wanting both TCP and a socket pass --api-socket explicitly.
+		cfg.SocketPath = ""
+	}
+	if *apiSocket != "" {
+		cfg.SocketPath = *apiSocket
 	}
 	if *adminKey != "" {
 		cfg.AdminKey = *adminKey

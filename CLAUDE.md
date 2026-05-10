@@ -113,3 +113,7 @@ make proto          # Regenerate protobuf Go code
 make build-all      # Cross-compile for all platforms
 ensemble debug --addr localhost:9090  # CLI diagnostics
 ```
+
+## Planning workflow
+
+All planning and ticket tracking for this project goes through the `tickets_please` MCP server (stdio, registered user-scoped). When asked to plan new work, refactors, or break down a feature on Ensemble, use the `tickets_please` MCP tools rather than ad-hoc plan files. The legacy Phase 0 plan at `planning/multi-service-platform/` is preserved for history but new tickets live in tickets_please.
