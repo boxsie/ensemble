@@ -229,6 +229,49 @@ func TestManager_AddNode_AnnouncesAndSaves(t *testing.T) {
 	}
 }
 
+func TestManager_EvictStale_DropsOldEntries(t *testing.T) {
+	dialer := newTestDialer()
+	nodeA := createTestNode(t, dialer)
+
+	// Add a stale and a fresh peer to A's RT directly.
+	stale := generateTestPeer(t)
+	stale.LastSeen = time.Now().Add(-300 * time.Hour) // older than 7d
+	nodeA.dht.rt.AddPeer(stale, stale.ID)
+
+	fresh := generateTestPeer(t)
+	fresh.LastSeen = time.Now()
+	nodeA.dht.rt.AddPeer(fresh, fresh.ID)
+
+	mgr := NewManager(nodeA.dht, nil)
+	mgr.SetRTMaxAge(168 * time.Hour)
+
+	if got := mgr.EvictStale(); got != 1 {
+		t.Fatalf("expected 1 evicted, got %d", got)
+	}
+	if nodeA.dht.rt.Size() != 1 {
+		t.Fatalf("expected 1 surviving peer, got %d", nodeA.dht.rt.Size())
+	}
+}
+
+func TestManager_EvictStale_DisabledWhenZero(t *testing.T) {
+	dialer := newTestDialer()
+	nodeA := createTestNode(t, dialer)
+
+	stale := generateTestPeer(t)
+	stale.LastSeen = time.Now().Add(-300 * time.Hour)
+	nodeA.dht.rt.AddPeer(stale, stale.ID)
+
+	mgr := NewManager(nodeA.dht, nil)
+	mgr.SetRTMaxAge(0) // disabled
+
+	if got := mgr.EvictStale(); got != 0 {
+		t.Fatalf("expected 0 evicted with maxAge=0, got %d", got)
+	}
+	if nodeA.dht.rt.Size() != 1 {
+		t.Fatalf("expected stale peer to survive when eviction disabled, size=%d", nodeA.dht.rt.Size())
+	}
+}
+
 func TestManager_StartAnnounceLoop_Cancellation(t *testing.T) {
 	dialer := newTestDialer()
 	nodeA := createTestNode(t, dialer)

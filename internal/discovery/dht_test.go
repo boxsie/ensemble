@@ -399,35 +399,27 @@ func TestManager_AddNode_NilDHT(t *testing.T) {
 func TestDHT_AddLocalIdentity_AnnouncedAndFound(t *testing.T) {
 	dialer := newTestDialer()
 
-	// Two daemons. nodeA hosts an extra service identity; nodeB asks for it.
 	nodeA := createTestNode(t, dialer)
 	nodeB := createTestNode(t, dialer)
 
-	// Mint a second identity hosted by nodeA (e.g. the "jeff" service).
 	jeffKp, err := identity.Generate()
 	if err != nil {
 		t.Fatalf("generate jeff identity: %v", err)
 	}
 	jeffAddr := identity.DeriveAddress(jeffKp.PublicKey()).String()
 	jeffOnion := "jeff.onion"
-	dialer.Register(jeffOnion, nodeA.addr) // jeff's signaling lives on nodeA's listener
+	dialer.Register(jeffOnion, nodeA.addr)
 
 	if err := nodeA.dht.AddLocalIdentity(jeffAddr, jeffOnion); err != nil {
 		t.Fatalf("AddLocalIdentity: %v", err)
 	}
 
-	// nodeB knows about nodeA so it can ask. nodeA must announce on nodeB
-	// so that nodeB's RT learns the jeff record (the iterative lookup also
-	// queries via nodeA, but we want the more direct path covered too).
 	nodeA.dht.rt.AddPeer(nodeB.peer, nodeB.peer.ID)
 	if err := nodeA.dht.Announce(context.Background()); err != nil {
 		t.Fatalf("Announce: %v", err)
 	}
 	time.Sleep(50 * time.Millisecond)
 
-	// B looks up jeff's address. Even without nodeA in B's RT, B should
-	// have learnt jeff via the announce. (And via iterative query through
-	// nodeA, since A's handleFindNode walks localIdentities.)
 	got, err := nodeB.dht.Lookup(context.Background(), jeffAddr)
 	if err != nil {
 		t.Fatalf("Lookup jeff: %v", err)
@@ -439,7 +431,6 @@ func TestDHT_AddLocalIdentity_AnnouncedAndFound(t *testing.T) {
 		t.Errorf("Lookup returned onion %q, want %q", got.OnionAddr, jeffOnion)
 	}
 
-	// Lookup of the primary nodeA identity must still work.
 	got, err = nodeB.dht.Lookup(context.Background(), nodeA.peer.Address)
 	if err != nil {
 		t.Fatalf("Lookup nodeA: %v", err)
@@ -455,8 +446,6 @@ func TestDHT_FindNode_ReturnsLocalIdentity(t *testing.T) {
 	nodeA := createTestNode(t, dialer)
 	nodeB := createTestNode(t, dialer)
 
-	// nodeA hosts a second identity. nodeB should be able to fetch it from
-	// nodeA via a direct find_node even before any announce has happened.
 	jeffKp, _ := identity.Generate()
 	jeffAddr := identity.DeriveAddress(jeffKp.PublicKey()).String()
 	jeffID := NodeIDFromPublicKey(jeffKp.PublicKey())
@@ -464,7 +453,6 @@ func TestDHT_FindNode_ReturnsLocalIdentity(t *testing.T) {
 		t.Fatalf("AddLocalIdentity: %v", err)
 	}
 
-	// nodeB asks nodeA directly.
 	peers, err := nodeB.dht.sendFindNode(context.Background(), nodeA.peer, jeffID)
 	if err != nil {
 		t.Fatalf("sendFindNode: %v", err)
@@ -503,15 +491,12 @@ func TestDHT_RemoveLocalIdentity(t *testing.T) {
 		t.Fatalf("expected snapshot empty after remove, got %d", len(snap))
 	}
 
-	// Removing again should be a no-op (return false).
 	if nodeA.dht.RemoveLocalIdentity(jeffAddr) {
 		t.Error("RemoveLocalIdentity returned true for already-removed identity")
 	}
 }
 
 func TestDHT_AddLocalIdentity_SkipsPrimary(t *testing.T) {
-	// AddLocalIdentity for the primary local peer is a no-op so the daemon
-	// can re-advertise its existing services without duplicate broadcasts.
 	dialer := newTestDialer()
 	nodeA := createTestNode(t, dialer)
 
@@ -520,6 +505,75 @@ func TestDHT_AddLocalIdentity_SkipsPrimary(t *testing.T) {
 	}
 	if got := len(nodeA.dht.localIdentitiesSnapshot()); got != 0 {
 		t.Errorf("primary added to localIdentities (got %d entries)", got)
+	}
+}
+
+func TestDHT_Announce_EvictsAfterConsecutiveFailures(t *testing.T) {
+	dialer := newTestDialer()
+	live := createTestNode(t, dialer)
+
+	deadKP, _ := identity.Generate()
+	deadAddr := identity.DeriveAddress(deadKP.PublicKey())
+	dead := &PeerInfo{
+		ID:        NodeIDFromPublicKey(deadKP.PublicKey()),
+		Address:   deadAddr.String(),
+		OnionAddr: "dead-" + deadAddr.Short() + ".onion",
+		LastSeen:  time.Now(),
+	}
+	live.dht.rt.AddPeer(dead, dead.ID)
+
+	live.dht.SetFailureThreshold(3)
+	ctx := context.Background()
+
+	for i := 1; i <= 2; i++ {
+		_ = live.dht.Announce(ctx)
+		if live.dht.rt.Size() != 1 {
+			t.Fatalf("after %d failures, peer should still be present (size=%d)", i, live.dht.rt.Size())
+		}
+	}
+
+	_ = live.dht.Announce(ctx)
+	if live.dht.rt.Size() != 0 {
+		t.Fatalf("after 3 consecutive failures peer should be evicted, size=%d", live.dht.rt.Size())
+	}
+}
+
+func TestDHT_Announce_SuccessResetsFailureCounter(t *testing.T) {
+	dialer := newTestDialer()
+	live := createTestNode(t, dialer)
+	good := createTestNode(t, dialer)
+
+	live.dht.rt.AddPeer(good.peer, good.peer.ID)
+	live.dht.SetFailureThreshold(3)
+	ctx := context.Background()
+
+	dialer.mu.Lock()
+	savedAddr := dialer.addrs[good.peer.OnionAddr]
+	delete(dialer.addrs, good.peer.OnionAddr)
+	dialer.mu.Unlock()
+
+	for i := 1; i <= 2; i++ {
+		_ = live.dht.Announce(ctx)
+	}
+
+	dialer.mu.Lock()
+	dialer.addrs[good.peer.OnionAddr] = savedAddr
+	dialer.mu.Unlock()
+
+	if err := live.dht.Announce(ctx); err != nil {
+		t.Fatalf("announce after restore should succeed: %v", err)
+	}
+	if live.dht.rt.Size() == 0 {
+		t.Fatal("good peer should still be in RT after success")
+	}
+
+	dialer.mu.Lock()
+	delete(dialer.addrs, good.peer.OnionAddr)
+	dialer.mu.Unlock()
+
+	_ = live.dht.Announce(ctx)
+	if live.dht.rt.Size() == 0 {
+		t.Fatal("counter should have reset after success; peer should not be evicted")
 	}
 }
 

@@ -3,19 +3,21 @@ package daemon
 import (
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // Config holds daemon startup configuration.
 type Config struct {
-	DataDir    string // base directory for identity, contacts, etc.
-	Passphrase string // keystore passphrase (empty = no encryption)
-	SocketPath string // Unix socket path for gRPC API
-	TCPAddr    string // optional TCP address for gRPC (headless/remote)
-	AdminKey   string // hex-encoded Ed25519 public key for gRPC auth
-	DisableTor bool   // skip Tor startup (for testing)
-	TorPath    string // explicit path to tor binary (overrides auto-download)
-	DisableP2P bool   // skip libp2p host startup (for testing)
-	P2PPort    int    // UDP port for QUIC (0 = random)
+	DataDir    string        // base directory for identity, contacts, etc.
+	Passphrase string        // keystore passphrase (empty = no encryption)
+	SocketPath string        // Unix socket path for gRPC API
+	TCPAddr    string        // optional TCP address for gRPC (headless/remote)
+	AdminKey   string        // hex-encoded Ed25519 public key for gRPC auth
+	DisableTor bool          // skip Tor startup (for testing)
+	TorPath    string        // explicit path to tor binary (overrides auto-download)
+	DisableP2P bool          // skip libp2p host startup (for testing)
+	P2PPort    int           // UDP port for QUIC (0 = random)
+	RTMaxAge   time.Duration // routing-table eviction window (0 = use discovery default)
 }
 
 // DefaultConfig returns a config with sensible defaults.

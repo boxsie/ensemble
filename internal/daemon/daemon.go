@@ -344,6 +344,17 @@ func (d *Daemon) wireSubsystems(ctx context.Context, nodeSvc *services.Service, 
 	mdns := discovery.NewMDNSDiscovery(addr, onionAddr)
 	discMgr := discovery.NewManager(dht, mdns)
 	discMgr.SetRTPath(rtPath)
+	if d.cfg.RTMaxAge > 0 {
+		discMgr.SetRTMaxAge(d.cfg.RTMaxAge)
+	}
+	// Immediate eviction pass after RT load so we don't carry torn-down
+	// onion entries (potentially weeks stale) into our first announce.
+	if n := discMgr.EvictStale(); n > 0 {
+		log.Printf("discovery: evicted %d stale routing-table peers at startup (rt_size=%d)", n, rt.Size())
+		if saveErr := rt.Save(rtPath); saveErr != nil {
+			log.Printf("discovery: save routing table after startup eviction: %v", saveErr)
+		}
+	}
 	d.node.SetDiscovery(discMgr)
 	// Wire the discovery manager into the registry so subsequent service
 	// registrations (and any already-registered services like the node

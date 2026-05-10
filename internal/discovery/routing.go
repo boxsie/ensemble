@@ -91,6 +91,15 @@ type PeerInfo struct {
 	Address   string    `json:"address"`
 	OnionAddr string    `json:"onion_addr"`
 	LastSeen  time.Time `json:"last_seen"`
+
+	// Failures counts consecutive announce failures observed by the
+	// announcing node. Reset to 0 on a successful announce, incremented on
+	// each failure. Intentionally not persisted: a daemon restart should
+	// give every peer a fresh shot regardless of the previous run's
+	// outcomes (Tor or local network may have been the problem). The DHT
+	// announce loop drops peers whose Failures cross a configured
+	// threshold.
+	Failures int `json:"-"`
 }
 
 // kBucket holds up to K peers. Most recently seen at the tail.
@@ -191,6 +200,105 @@ func (rt *RoutingTable) RemovePeer(addr string) bool {
 		}
 	}
 	return false
+}
+
+// Evict removes peers whose LastSeen is older than maxAge, and any peer with a
+// zero LastSeen (treated as ancient — see PeerInfo.LastSeen invariant). Returns
+// the number of peers evicted. maxAge <= 0 disables the time-based pass.
+func (rt *RoutingTable) Evict(maxAge time.Duration) int {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	now := time.Now()
+	evicted := 0
+	for i := range rt.buckets {
+		bucket := &rt.buckets[i]
+		kept := bucket.peers[:0]
+		for _, p := range bucket.peers {
+			// Zero LastSeen → treat as ancient (matches isExpired's
+			// existing convention; AddPeer callers are expected to set
+			// LastSeen explicitly).
+			if p.LastSeen.IsZero() {
+				evicted++
+				continue
+			}
+			if maxAge > 0 && now.Sub(p.LastSeen) > maxAge {
+				evicted++
+				continue
+			}
+			kept = append(kept, p)
+		}
+		// Avoid retaining references to evicted peers in the underlying array.
+		for j := len(kept); j < len(bucket.peers); j++ {
+			bucket.peers[j] = nil
+		}
+		bucket.peers = kept
+	}
+	return evicted
+}
+
+// RecordFailure increments the in-memory failure counter for the peer with the
+// given onion address. Returns the new failure count, or 0 if the peer is no
+// longer in the routing table.
+func (rt *RoutingTable) RecordFailure(onionAddr string) int {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	for i := range rt.buckets {
+		for _, p := range rt.buckets[i].peers {
+			if p.OnionAddr == onionAddr {
+				p.Failures++
+				return p.Failures
+			}
+		}
+	}
+	return 0
+}
+
+// RecordSuccess clears the in-memory failure counter for the peer with the
+// given onion address. No-op if the peer is not in the routing table.
+func (rt *RoutingTable) RecordSuccess(onionAddr string) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	for i := range rt.buckets {
+		for _, p := range rt.buckets[i].peers {
+			if p.OnionAddr == onionAddr {
+				p.Failures = 0
+				return
+			}
+		}
+	}
+}
+
+// EvictByFailures removes peers whose in-memory failure counter is at or above
+// the given threshold. Returns the number evicted. threshold <= 0 disables the
+// pass.
+func (rt *RoutingTable) EvictByFailures(threshold int) []*PeerInfo {
+	if threshold <= 0 {
+		return nil
+	}
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	var dropped []*PeerInfo
+	for i := range rt.buckets {
+		bucket := &rt.buckets[i]
+		kept := bucket.peers[:0]
+		for _, p := range bucket.peers {
+			if p.Failures >= threshold {
+				cp := *p
+				dropped = append(dropped, &cp)
+				continue
+			}
+			kept = append(kept, p)
+		}
+		for j := len(kept); j < len(bucket.peers); j++ {
+			bucket.peers[j] = nil
+		}
+		bucket.peers = kept
+	}
+	return dropped
 }
 
 // FindClosest returns up to count peers closest to target by XOR distance.
