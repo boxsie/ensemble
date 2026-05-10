@@ -464,6 +464,227 @@ func TestAllPeers_ReturnsCopy(t *testing.T) {
 	}
 }
 
+func TestEvict_DropsOnlyOlderThanMaxAge(t *testing.T) {
+	lid, _ := localID(t)
+	rt := NewRoutingTable(lid)
+
+	now := time.Now()
+
+	fresh := generateTestPeer(t)
+	fresh.LastSeen = now.Add(-1 * time.Hour) // well within window
+	rt.AddPeer(fresh, fresh.ID)
+
+	stale := generateTestPeer(t)
+	stale.LastSeen = now.Add(-200 * time.Hour) // older than 7 days
+	rt.AddPeer(stale, stale.ID)
+
+	borderline := generateTestPeer(t)
+	borderline.LastSeen = now.Add(-167 * time.Hour) // just inside 168h
+	rt.AddPeer(borderline, borderline.ID)
+
+	if rt.Size() != 3 {
+		t.Fatalf("expected 3 peers before evict, got %d", rt.Size())
+	}
+
+	evicted := rt.Evict(168 * time.Hour)
+	if evicted != 1 {
+		t.Fatalf("expected 1 evicted, got %d", evicted)
+	}
+	if rt.Size() != 2 {
+		t.Fatalf("expected 2 peers after evict, got %d", rt.Size())
+	}
+
+	// Confirm the right peer survived.
+	all := rt.AllPeers()
+	survived := map[string]bool{}
+	for _, p := range all {
+		survived[p.Address] = true
+	}
+	if survived[stale.Address] {
+		t.Fatal("stale peer should have been evicted")
+	}
+	if !survived[fresh.Address] || !survived[borderline.Address] {
+		t.Fatal("fresh and borderline peers should have survived")
+	}
+}
+
+func TestEvict_ZeroLastSeenIsAncient(t *testing.T) {
+	// PeerInfo.LastSeen zero time → treated as expired/ancient. This matches
+	// the existing isExpired convention and protects against records that
+	// slipped in without a LastSeen stamp.
+	lid, _ := localID(t)
+	rt := NewRoutingTable(lid)
+
+	zeroLS := generateTestPeer(t)
+	zeroLS.LastSeen = time.Time{}
+	rt.AddPeer(zeroLS, zeroLS.ID)
+
+	fresh := generateTestPeer(t)
+	fresh.LastSeen = time.Now()
+	rt.AddPeer(fresh, fresh.ID)
+
+	evicted := rt.Evict(168 * time.Hour)
+	if evicted != 1 {
+		t.Fatalf("expected 1 evicted (zero LastSeen), got %d", evicted)
+	}
+	if rt.Size() != 1 {
+		t.Fatalf("expected 1 surviving peer, got %d", rt.Size())
+	}
+}
+
+func TestEvict_NoMaxAgeStillDropsZeroLastSeen(t *testing.T) {
+	lid, _ := localID(t)
+	rt := NewRoutingTable(lid)
+
+	zeroLS := generateTestPeer(t)
+	zeroLS.LastSeen = time.Time{}
+	rt.AddPeer(zeroLS, zeroLS.ID)
+
+	fresh := generateTestPeer(t)
+	fresh.LastSeen = time.Now().Add(-2000 * time.Hour) // would be very stale
+	rt.AddPeer(fresh, fresh.ID)
+
+	// maxAge=0 disables time-based eviction but zero-time peers still go.
+	evicted := rt.Evict(0)
+	if evicted != 1 {
+		t.Fatalf("expected 1 evicted (zero LastSeen), got %d", evicted)
+	}
+	if rt.Size() != 1 {
+		t.Fatalf("expected 1 surviving peer, got %d", rt.Size())
+	}
+}
+
+func TestRecordFailureSuccess_Counters(t *testing.T) {
+	lid, _ := localID(t)
+	rt := NewRoutingTable(lid)
+
+	peer := generateTestPeer(t)
+	rt.AddPeer(peer, peer.ID)
+
+	if got := rt.RecordFailure(peer.OnionAddr); got != 1 {
+		t.Fatalf("expected 1 after first failure, got %d", got)
+	}
+	if got := rt.RecordFailure(peer.OnionAddr); got != 2 {
+		t.Fatalf("expected 2 after second failure, got %d", got)
+	}
+
+	rt.RecordSuccess(peer.OnionAddr)
+
+	if got := rt.RecordFailure(peer.OnionAddr); got != 1 {
+		t.Fatalf("expected counter reset to 1 after success+failure, got %d", got)
+	}
+
+	// Unknown peer → returns 0 sentinel, no panic.
+	if got := rt.RecordFailure("nonexistent.onion"); got != 0 {
+		t.Fatalf("expected 0 for unknown peer, got %d", got)
+	}
+}
+
+func TestEvictByFailures_DropsAtThreshold(t *testing.T) {
+	lid, _ := localID(t)
+	rt := NewRoutingTable(lid)
+
+	doomed := generateTestPeer(t)
+	rt.AddPeer(doomed, doomed.ID)
+
+	survivor := generateTestPeer(t)
+	rt.AddPeer(survivor, survivor.ID)
+
+	// 3 consecutive failures on doomed.
+	rt.RecordFailure(doomed.OnionAddr)
+	rt.RecordFailure(doomed.OnionAddr)
+	rt.RecordFailure(doomed.OnionAddr)
+	// 1 failure on survivor — under threshold.
+	rt.RecordFailure(survivor.OnionAddr)
+
+	dropped := rt.EvictByFailures(3)
+	if len(dropped) != 1 {
+		t.Fatalf("expected 1 dropped, got %d", len(dropped))
+	}
+	if dropped[0].Address != doomed.Address {
+		t.Fatalf("expected doomed peer to be dropped, got %s", dropped[0].Address)
+	}
+	if rt.Size() != 1 {
+		t.Fatalf("expected 1 peer remaining, got %d", rt.Size())
+	}
+}
+
+func TestEvictByFailures_TwoFailuresPlusSuccessResets(t *testing.T) {
+	// Acceptance criterion: 2 failures + 1 success resets the counter; the
+	// peer should NOT be evicted on a subsequent third failure.
+	lid, _ := localID(t)
+	rt := NewRoutingTable(lid)
+
+	peer := generateTestPeer(t)
+	rt.AddPeer(peer, peer.ID)
+
+	rt.RecordFailure(peer.OnionAddr)
+	rt.RecordFailure(peer.OnionAddr)
+	rt.RecordSuccess(peer.OnionAddr) // reset
+
+	if dropped := rt.EvictByFailures(3); len(dropped) != 0 {
+		t.Fatalf("after success reset, no peer should be evicted; got %d", len(dropped))
+	}
+
+	// One more failure brings counter to 1 — still under threshold.
+	rt.RecordFailure(peer.OnionAddr)
+	if dropped := rt.EvictByFailures(3); len(dropped) != 0 {
+		t.Fatalf("counter should be 1 after reset+1 failure; got dropped=%d", len(dropped))
+	}
+	if rt.Size() != 1 {
+		t.Fatalf("peer should still be in routing table, size=%d", rt.Size())
+	}
+}
+
+func TestEvictByFailures_ZeroThresholdDisabled(t *testing.T) {
+	lid, _ := localID(t)
+	rt := NewRoutingTable(lid)
+
+	peer := generateTestPeer(t)
+	rt.AddPeer(peer, peer.ID)
+	for i := 0; i < 10; i++ {
+		rt.RecordFailure(peer.OnionAddr)
+	}
+
+	dropped := rt.EvictByFailures(0)
+	if len(dropped) != 0 {
+		t.Fatalf("threshold=0 should disable eviction, got %d dropped", len(dropped))
+	}
+	if rt.Size() != 1 {
+		t.Fatal("peer should still be present")
+	}
+}
+
+func TestFailureCounter_NotPersisted(t *testing.T) {
+	// Save/Load round trip must NOT carry the in-memory failure counter.
+	// Restart should give every peer a fresh shot.
+	lid, _ := localID(t)
+	rt := NewRoutingTable(lid)
+
+	peer := generateTestPeer(t)
+	rt.AddPeer(peer, peer.ID)
+	rt.RecordFailure(peer.OnionAddr)
+	rt.RecordFailure(peer.OnionAddr)
+
+	path := filepath.Join(t.TempDir(), "routing.json")
+	if err := rt.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	rt2 := NewRoutingTable(lid)
+	if err := rt2.Load(path); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	loaded := rt2.AllPeers()
+	if len(loaded) != 1 {
+		t.Fatalf("expected 1 loaded peer, got %d", len(loaded))
+	}
+	if loaded[0].Failures != 0 {
+		t.Fatalf("failure counter must not survive save/load; got %d", loaded[0].Failures)
+	}
+}
+
 func TestConcurrentAddPeer(t *testing.T) {
 	lid, _ := localID(t)
 	rt := NewRoutingTable(lid)

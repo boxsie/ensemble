@@ -396,6 +396,89 @@ func TestManager_AddNode_NilDHT(t *testing.T) {
 	}
 }
 
+// TestDHT_Announce_EvictsAfterConsecutiveFailures verifies the acceptance
+// criterion: a peer that fails the configured number of consecutive announce
+// attempts gets evicted from the routing table.
+func TestDHT_Announce_EvictsAfterConsecutiveFailures(t *testing.T) {
+	dialer := newTestDialer()
+	live := createTestNode(t, dialer)
+
+	// Add a "dead" peer to live's routing table — its onion address is NOT
+	// registered with the dialer, so every dial fails with "unknown address".
+	deadKP, _ := identity.Generate()
+	deadAddr := identity.DeriveAddress(deadKP.PublicKey())
+	dead := &PeerInfo{
+		ID:        NodeIDFromPublicKey(deadKP.PublicKey()),
+		Address:   deadAddr.String(),
+		OnionAddr: "dead-" + deadAddr.Short() + ".onion",
+		LastSeen:  time.Now(), // fresh timestamp — only failure count should drive eviction
+	}
+	live.dht.rt.AddPeer(dead, dead.ID)
+
+	live.dht.SetFailureThreshold(3)
+	ctx := context.Background()
+
+	// First two announces fail but should NOT evict (threshold = 3).
+	for i := 1; i <= 2; i++ {
+		_ = live.dht.Announce(ctx)
+		if live.dht.rt.Size() != 1 {
+			t.Fatalf("after %d failures, peer should still be present (size=%d)", i, live.dht.rt.Size())
+		}
+	}
+
+	// Third announce: after sendPutRecord fails the third time the peer should
+	// be evicted.
+	_ = live.dht.Announce(ctx)
+	if live.dht.rt.Size() != 0 {
+		t.Fatalf("after 3 consecutive failures peer should be evicted, size=%d", live.dht.rt.Size())
+	}
+}
+
+// TestDHT_Announce_SuccessResetsFailureCounter verifies that a successful
+// announce clears the counter, so 2 failures + 1 success + 1 failure does NOT
+// evict.
+func TestDHT_Announce_SuccessResetsFailureCounter(t *testing.T) {
+	dialer := newTestDialer()
+	live := createTestNode(t, dialer)
+	good := createTestNode(t, dialer)
+
+	live.dht.rt.AddPeer(good.peer, good.peer.ID)
+	live.dht.SetFailureThreshold(3)
+	ctx := context.Background()
+
+	// Force two failures by temporarily breaking the dialer mapping.
+	dialer.mu.Lock()
+	savedAddr := dialer.addrs[good.peer.OnionAddr]
+	delete(dialer.addrs, good.peer.OnionAddr)
+	dialer.mu.Unlock()
+
+	for i := 1; i <= 2; i++ {
+		_ = live.dht.Announce(ctx)
+	}
+
+	// Restore mapping → next announce succeeds and resets counter.
+	dialer.mu.Lock()
+	dialer.addrs[good.peer.OnionAddr] = savedAddr
+	dialer.mu.Unlock()
+
+	if err := live.dht.Announce(ctx); err != nil {
+		t.Fatalf("announce after restore should succeed: %v", err)
+	}
+	if live.dht.rt.Size() == 0 {
+		t.Fatal("good peer should still be in RT after success")
+	}
+
+	// Break it again → one more failure brings counter to 1, NOT 3.
+	dialer.mu.Lock()
+	delete(dialer.addrs, good.peer.OnionAddr)
+	dialer.mu.Unlock()
+
+	_ = live.dht.Announce(ctx)
+	if live.dht.rt.Size() == 0 {
+		t.Fatal("counter should have reset after success; peer should not be evicted")
+	}
+}
+
 func TestRecordToPeerInfo_Nil(t *testing.T) {
 	if recordToPeerInfo(nil) != nil {
 		t.Fatal("nil record should return nil")

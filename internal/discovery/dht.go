@@ -18,6 +18,10 @@ const (
 
 	// LookupMaxIterations is the maximum rounds of iterative lookup.
 	LookupMaxIterations = 20
+
+	// AnnounceFailureThreshold is the default number of consecutive announce
+	// failures after which a peer is evicted from the routing table.
+	AnnounceFailureThreshold = 3
 )
 
 // Dialer abstracts network dialing for DHT connections.
@@ -32,16 +36,27 @@ type DHTDiscovery struct {
 	localPeer *PeerInfo
 	dialer    Dialer
 	recordTTL time.Duration
+
+	// failureThreshold is the number of consecutive announce failures after
+	// which a peer is evicted from the routing table. <=0 disables.
+	failureThreshold int
 }
 
 // NewDHTDiscovery creates a new DHT discovery instance.
 func NewDHTDiscovery(rt *RoutingTable, localPeer *PeerInfo, dialer Dialer) *DHTDiscovery {
 	return &DHTDiscovery{
-		rt:        rt,
-		localPeer: localPeer,
-		dialer:    dialer,
-		recordTTL: RecordTTL,
+		rt:               rt,
+		localPeer:        localPeer,
+		dialer:           dialer,
+		recordTTL:        RecordTTL,
+		failureThreshold: AnnounceFailureThreshold,
 	}
+}
+
+// SetFailureThreshold overrides the default consecutive-failure eviction
+// threshold. Pass 0 to disable failure-based eviction.
+func (d *DHTDiscovery) SetFailureThreshold(n int) {
+	d.failureThreshold = n
 }
 
 // RT returns the underlying routing table.
@@ -80,10 +95,23 @@ func (d *DHTDiscovery) Announce(ctx context.Context) error {
 	for _, peer := range closest {
 		if err := d.sendPutRecord(ctx, peer); err == nil {
 			succeeded++
+			d.rt.RecordSuccess(peer.OnionAddr)
 		} else {
-			log.Printf("dht: announce to %s failed: %v", peer.OnionAddr, err)
+			fails := d.rt.RecordFailure(peer.OnionAddr)
+			log.Printf("dht: announce to %s failed (consecutive=%d): %v", peer.OnionAddr, fails, err)
 		}
 	}
+
+	// Drop peers that have crossed the consecutive-failure threshold. This
+	// is what unsticks the routing table when (e.g.) a torn-down seed onion
+	// is permanently unreachable — without it, every announce loop would
+	// keep dialing the dead peer until it expired by LastSeen alone.
+	if dropped := d.rt.EvictByFailures(d.failureThreshold); len(dropped) > 0 {
+		for _, p := range dropped {
+			log.Printf("dht: evicted unreachable peer (addr=%s, onion=%s, failures=%d)", p.Address, p.OnionAddr, p.Failures)
+		}
+	}
+
 	if succeeded == 0 {
 		return fmt.Errorf("announce failed: all %d peers unreachable", len(closest))
 	}
