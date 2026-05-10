@@ -20,6 +20,15 @@ var ErrAlreadyRegistered = errors.New("services: service already registered")
 // service with that name (or onion address) is in the registry.
 var ErrNotRegistered = errors.New("services: service not registered")
 
+// Discovery is the slice of *discovery.Manager that the registry depends on
+// to advertise per-service identities to the DHT. Defining the interface here
+// keeps the registry free of any discovery import (it must not depend on a
+// package that one day might want to depend on services).
+type Discovery interface {
+	AddLocalIdentity(addr, onion string) error
+	RemoveLocalIdentity(addr string)
+}
+
 // Registry tracks the set of services running on the daemon. Methods are
 // safe for concurrent use. The slow Tor work performed during Register and
 // Unregister is done with the registry mutex released so unrelated lookups
@@ -31,6 +40,7 @@ type Registry struct {
 	mu      sync.RWMutex
 	byName  map[string]*Service
 	byOnion map[string]*Service
+	disc    Discovery
 }
 
 // New constructs a Registry that uses ks for keypair persistence and te for
@@ -91,7 +101,21 @@ func (r *Registry) Register(ctx context.Context, name string, manifest Manifest,
 	}
 	r.byName[name] = svc
 	r.byOnion[onionAddr] = svc
+	disc := r.disc
 	r.mu.Unlock()
+
+	if disc != nil {
+		if err := disc.AddLocalIdentity(svc.Address, svc.OnionAddr); err != nil {
+			r.mu.Lock()
+			delete(r.byName, name)
+			delete(r.byOnion, onionAddr)
+			r.mu.Unlock()
+			if remErr := r.te.RemoveOnion(name); remErr != nil {
+				return nil, fmt.Errorf("advertising %q: %w (rollback also failed: %v)", name, err, remErr)
+			}
+			return nil, fmt.Errorf("advertising %q: %w", name, err)
+		}
+	}
 
 	return svc, nil
 }
@@ -108,12 +132,42 @@ func (r *Registry) Unregister(name string) error {
 	}
 	delete(r.byName, name)
 	delete(r.byOnion, svc.OnionAddr)
+	disc := r.disc
 	r.mu.Unlock()
+
+	if disc != nil {
+		disc.RemoveLocalIdentity(svc.Address)
+	}
 
 	if err := r.te.RemoveOnion(name); err != nil {
 		return fmt.Errorf("removing onion for %q: %w", name, err)
 	}
 	return nil
+}
+
+// SetDiscovery wires a Discovery implementation into the registry so future
+// Register/Unregister calls advertise per-service identities to the DHT. It
+// also retroactively advertises any services already registered (this matters
+// because Tor and the registry come up before the discovery manager). Passing
+// nil unwires.
+func (r *Registry) SetDiscovery(d Discovery) {
+	r.mu.Lock()
+	r.disc = d
+	var existing []*Service
+	if d != nil {
+		existing = make([]*Service, 0, len(r.byName))
+		for _, svc := range r.byName {
+			existing = append(existing, svc)
+		}
+	}
+	r.mu.Unlock()
+
+	for _, svc := range existing {
+		if err := d.AddLocalIdentity(svc.Address, svc.OnionAddr); err != nil {
+			// Log via the caller's path; registry stays mute by design.
+			_ = err
+		}
+	}
 }
 
 // Get returns the Service registered under name. The bool is false when no

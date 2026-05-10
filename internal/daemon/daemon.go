@@ -345,6 +345,12 @@ func (d *Daemon) wireSubsystems(ctx context.Context, nodeSvc *services.Service, 
 	discMgr := discovery.NewManager(dht, mdns)
 	discMgr.SetRTPath(rtPath)
 	d.node.SetDiscovery(discMgr)
+	// Wire the discovery manager into the registry so subsequent service
+	// registrations (and any already-registered services like the node
+	// service) are advertised on the DHT.
+	if d.registry != nil {
+		d.registry.SetDiscovery(discMgr)
+	}
 	log.Printf("discovery: DHT + mDNS initialized (rt_size=%d)", rt.Size())
 
 	// Signaling server: per-service demux, with the DHT plumbed in as the

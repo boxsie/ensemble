@@ -162,6 +162,31 @@ func (m *Manager) SetRTPath(path string) {
 	m.mu.Unlock()
 }
 
+// AddLocalIdentity registers an additional locally-hosted identity (a
+// per-service onion) with the DHT layer so it is advertised on Announce
+// and returned by handleFindNode.
+func (m *Manager) AddLocalIdentity(addr, onion string) error {
+	if m.dht == nil {
+		return fmt.Errorf("DHT not initialized")
+	}
+	if err := m.dht.AddLocalIdentity(addr, onion); err != nil {
+		return err
+	}
+	log.Printf("discovery: registered local identity (addr=%s, onion=%s)", addr, onion)
+	return nil
+}
+
+// RemoveLocalIdentity removes a local identity previously added via
+// AddLocalIdentity.
+func (m *Manager) RemoveLocalIdentity(addr string) {
+	if m.dht == nil {
+		return
+	}
+	if m.dht.RemoveLocalIdentity(addr) {
+		log.Printf("discovery: removed local identity (addr=%s)", addr)
+	}
+}
+
 // StartAnnounceLoop runs a background goroutine that announces to the DHT
 // and saves the routing table periodically. Stops when ctx is cancelled.
 func (m *Manager) StartAnnounceLoop(ctx context.Context) {

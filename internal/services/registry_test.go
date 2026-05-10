@@ -349,6 +349,141 @@ func TestHandlerRoleAssertions(t *testing.T) {
 	}
 }
 
+// fakeDiscovery records AddLocalIdentity / RemoveLocalIdentity calls so tests
+// can assert the registry → discovery wiring fires for every Register and
+// Unregister.
+type fakeDiscovery struct {
+	mu      sync.Mutex
+	added   []fakeIdent
+	removed []string
+	failNxt error
+}
+
+type fakeIdent struct {
+	addr  string
+	onion string
+}
+
+func (f *fakeDiscovery) AddLocalIdentity(addr, onion string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failNxt != nil {
+		err := f.failNxt
+		f.failNxt = nil
+		return err
+	}
+	f.added = append(f.added, fakeIdent{addr: addr, onion: onion})
+	return nil
+}
+
+func (f *fakeDiscovery) RemoveLocalIdentity(addr string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.removed = append(f.removed, addr)
+}
+
+func (f *fakeDiscovery) snapshot() ([]fakeIdent, []string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	a := append([]fakeIdent(nil), f.added...)
+	r := append([]string(nil), f.removed...)
+	return a, r
+}
+
+func TestRegisterAdvertisesToDiscovery(t *testing.T) {
+	r, _, _ := newTestRegistry(t)
+	disc := &fakeDiscovery{}
+	r.SetDiscovery(disc)
+
+	ctx := context.Background()
+	svc, err := r.Register(ctx, "jeff", Manifest{}, nil)
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	added, _ := disc.snapshot()
+	if len(added) != 1 {
+		t.Fatalf("AddLocalIdentity calls = %d, want 1", len(added))
+	}
+	if added[0].addr != svc.Address || added[0].onion != svc.OnionAddr {
+		t.Errorf("AddLocalIdentity got (%s,%s), want (%s,%s)",
+			added[0].addr, added[0].onion, svc.Address, svc.OnionAddr)
+	}
+
+	if err := r.Unregister("jeff"); err != nil {
+		t.Fatalf("Unregister: %v", err)
+	}
+	_, removed := disc.snapshot()
+	if len(removed) != 1 || removed[0] != svc.Address {
+		t.Errorf("RemoveLocalIdentity = %v, want [%s]", removed, svc.Address)
+	}
+}
+
+func TestSetDiscoveryRetroactivelyAdvertises(t *testing.T) {
+	// Mirrors the daemon's startup ordering: Tor brings the registry up and
+	// the node service registers before the discovery manager exists. When
+	// SetDiscovery is finally called, the existing services must be pushed.
+	r, _, _ := newTestRegistry(t)
+	ctx := context.Background()
+
+	svcA, err := r.Register(ctx, "node", Manifest{}, nil)
+	if err != nil {
+		t.Fatalf("Register node: %v", err)
+	}
+	svcB, err := r.Register(ctx, "jeff", Manifest{}, nil)
+	if err != nil {
+		t.Fatalf("Register jeff: %v", err)
+	}
+
+	disc := &fakeDiscovery{}
+	r.SetDiscovery(disc)
+
+	added, _ := disc.snapshot()
+	if len(added) != 2 {
+		t.Fatalf("retroactive AddLocalIdentity calls = %d, want 2", len(added))
+	}
+	gotAddrs := map[string]string{added[0].addr: added[0].onion, added[1].addr: added[1].onion}
+	if gotAddrs[svcA.Address] != svcA.OnionAddr {
+		t.Errorf("retroactive: %s onion = %q, want %q", svcA.Address, gotAddrs[svcA.Address], svcA.OnionAddr)
+	}
+	if gotAddrs[svcB.Address] != svcB.OnionAddr {
+		t.Errorf("retroactive: %s onion = %q, want %q", svcB.Address, gotAddrs[svcB.Address], svcB.OnionAddr)
+	}
+}
+
+func TestRegisterDiscoveryFailureRollsBack(t *testing.T) {
+	r, te, ks := newTestRegistry(t)
+	disc := &fakeDiscovery{failNxt: errors.New("disc boom")}
+	r.SetDiscovery(disc)
+
+	ctx := context.Background()
+	_, err := r.Register(ctx, "jeff", Manifest{}, nil)
+	if err == nil {
+		t.Fatal("Register: expected error from discovery, got nil")
+	}
+
+	if _, ok := r.Get("jeff"); ok {
+		t.Error("registry kept jeff after discovery failure; expected rollback")
+	}
+	if te.running("jeff") {
+		t.Error("onion still running after discovery failure; expected RemoveOnion")
+	}
+	// Keypair is preserved (keystore append-only).
+	if !ks.Has("jeff") {
+		t.Error("keystore dropped jeff identity")
+	}
+
+	// A retry succeeds and advertises.
+	svc, err := r.Register(ctx, "jeff", Manifest{}, nil)
+	if err != nil {
+		t.Fatalf("retry Register: %v", err)
+	}
+	added, _ := disc.snapshot()
+	if len(added) != 1 || added[0].addr != svc.Address {
+		t.Errorf("retry AddLocalIdentity = %v, want one entry for %s", added, svc.Address)
+	}
+}
+
 func TestConcurrentRegisterUnregisterStress(t *testing.T) {
 	r, _, _ := newTestRegistry(t)
 	ctx := context.Background()

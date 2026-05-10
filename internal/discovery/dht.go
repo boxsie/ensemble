@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/boxsie/ensemble/internal/protocol"
@@ -32,6 +33,12 @@ type DHTDiscovery struct {
 	localPeer *PeerInfo
 	dialer    Dialer
 	recordTTL time.Duration
+
+	// Additional locally-hosted identities (per-service onions registered after
+	// startup). They are advertised to the DHT alongside localPeer and returned
+	// by handleFindNode when a peer asks for one of them.
+	identMu         sync.RWMutex
+	localIdentities []*PeerInfo
 }
 
 // NewDHTDiscovery creates a new DHT discovery instance.
@@ -47,6 +54,69 @@ func NewDHTDiscovery(rt *RoutingTable, localPeer *PeerInfo, dialer Dialer) *DHTD
 // RT returns the underlying routing table.
 func (d *DHTDiscovery) RT() *RoutingTable {
 	return d.rt
+}
+
+// AddLocalIdentity registers an additional identity (per-service onion) hosted
+// by this daemon. handleFindNode will return it for matching lookups, and
+// Announce will publish it to the DHT alongside the primary localPeer. Calls
+// for an address that matches localPeer are a no-op (the primary is already
+// covered). Calls with a duplicate address replace the existing onion.
+func (d *DHTDiscovery) AddLocalIdentity(addr, onion string) error {
+	id, err := NodeIDFromAddress(addr)
+	if err != nil {
+		return fmt.Errorf("invalid address: %w", err)
+	}
+	if d.localPeer != nil && d.localPeer.Address == addr {
+		return nil
+	}
+	p := &PeerInfo{
+		ID:        id,
+		Address:   addr,
+		OnionAddr: onion,
+		LastSeen:  time.Now(),
+	}
+	d.identMu.Lock()
+	defer d.identMu.Unlock()
+	for i, existing := range d.localIdentities {
+		if existing.Address == addr {
+			d.localIdentities[i] = p
+			return nil
+		}
+	}
+	d.localIdentities = append(d.localIdentities, p)
+	return nil
+}
+
+// RemoveLocalIdentity removes a previously-added local identity. Returns true
+// if the identity was present.
+func (d *DHTDiscovery) RemoveLocalIdentity(addr string) bool {
+	d.identMu.Lock()
+	defer d.identMu.Unlock()
+	for i, existing := range d.localIdentities {
+		if existing.Address == addr {
+			d.localIdentities = append(d.localIdentities[:i], d.localIdentities[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// localIdentitiesSnapshot returns a copy of the local identity list with
+// LastSeen refreshed to now.
+func (d *DHTDiscovery) localIdentitiesSnapshot() []*PeerInfo {
+	d.identMu.RLock()
+	defer d.identMu.RUnlock()
+	if len(d.localIdentities) == 0 {
+		return nil
+	}
+	out := make([]*PeerInfo, 0, len(d.localIdentities))
+	now := time.Now()
+	for _, p := range d.localIdentities {
+		cp := *p
+		cp.LastSeen = now
+		out = append(out, &cp)
+	}
+	return out
 }
 
 // Bootstrap dials a seed node and performs a FindNode(self) to populate the routing table.
@@ -67,27 +137,47 @@ func (d *DHTDiscovery) Bootstrap(ctx context.Context, onionAddr string) (int, er
 	return len(peers), nil
 }
 
-// Announce pushes our PeerRecord to the K closest nodes in the routing table.
+// Announce pushes our PeerRecord(s) to the K closest nodes in the routing
+// table. The primary localPeer is always announced; any registered local
+// identities (per-service onions) are announced too so external peers can
+// resolve service addresses via DHT lookup.
 func (d *DHTDiscovery) Announce(ctx context.Context) error {
 	d.localPeer.LastSeen = time.Now()
-	closest := d.rt.FindClosest(d.localPeer.ID, K)
-	if len(closest) == 0 {
-		return fmt.Errorf("no peers in routing table to announce to")
-	}
 
-	log.Printf("dht: announcing to %d peers", len(closest))
-	var succeeded int
-	for _, peer := range closest {
-		if err := d.sendPutRecord(ctx, peer); err == nil {
-			succeeded++
+	identities := []*PeerInfo{d.localPeer}
+	identities = append(identities, d.localIdentitiesSnapshot()...)
+
+	var anySucceeded bool
+	var lastErr error
+	for _, ident := range identities {
+		closest := d.rt.FindClosest(ident.ID, K)
+		if len(closest) == 0 {
+			lastErr = fmt.Errorf("no peers in routing table to announce to")
+			continue
+		}
+
+		log.Printf("dht: announcing %s to %d peers", ident.Address, len(closest))
+		var succeeded int
+		for _, peer := range closest {
+			if err := d.sendPutRecord(ctx, peer, ident); err == nil {
+				succeeded++
+			} else {
+				log.Printf("dht: announce %s to %s failed: %v", ident.Address, peer.OnionAddr, err)
+			}
+		}
+		if succeeded > 0 {
+			anySucceeded = true
+			log.Printf("dht: announce complete for %s (%d/%d succeeded)", ident.Address, succeeded, len(closest))
 		} else {
-			log.Printf("dht: announce to %s failed: %v", peer.OnionAddr, err)
+			lastErr = fmt.Errorf("announce failed: all %d peers unreachable", len(closest))
 		}
 	}
-	if succeeded == 0 {
-		return fmt.Errorf("announce failed: all %d peers unreachable", len(closest))
+	if !anySucceeded {
+		if lastErr != nil {
+			return lastErr
+		}
+		return fmt.Errorf("no identities to announce")
 	}
-	log.Printf("dht: announce complete (%d/%d succeeded)", succeeded, len(closest))
 	return nil
 }
 
@@ -193,6 +283,11 @@ func (d *DHTDiscovery) handleFindNode(conn net.Conn, env *pb.Envelope) {
 	self.LastSeen = time.Now()
 	closest = append(closest, &self)
 
+	// Include any per-service identities hosted on this daemon. Without this
+	// a peer asking for a registered service's address gets only RT entries
+	// (which won't include the service hosted right here).
+	closest = append(closest, d.localIdentitiesSnapshot()...)
+
 	log.Printf("dht: handleFindNode from=%s target=%s returning=%d", conn.RemoteAddr(), target, len(closest))
 	resp := peersToResponse(closest)
 	payload, err := proto.Marshal(resp)
@@ -268,14 +363,14 @@ func (d *DHTDiscovery) sendFindNode(ctx context.Context, peer *PeerInfo, target 
 	return peers, nil
 }
 
-func (d *DHTDiscovery) sendPutRecord(ctx context.Context, target *PeerInfo) error {
+func (d *DHTDiscovery) sendPutRecord(ctx context.Context, target *PeerInfo, ident *PeerInfo) error {
 	conn, err := d.dialer.DialContext(ctx, target.OnionAddr)
 	if err != nil {
 		return fmt.Errorf("dialing %s: %w", target.OnionAddr, err)
 	}
 	defer conn.Close()
 
-	record := peerInfoToRecord(d.localPeer)
+	record := peerInfoToRecord(ident)
 	msg := &pb.DHTPutRecord{Record: record}
 	payload, err := proto.Marshal(msg)
 	if err != nil {
