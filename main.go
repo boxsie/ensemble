@@ -248,6 +248,7 @@ func runAddNode(args []string) {
 	authKey := fs.String("auth-key", "", "path to Ed25519 seed file for authentication")
 	useTLS := fs.Bool("tls", false, "wrap the connection in TLS (use for HTTPS ingress)")
 	tlsInsecure := fs.Bool("tls-insecure", false, "use TLS but skip certificate verification")
+	timeout := fs.Duration("timeout", 180*time.Second, "RPC deadline for the bootstrap call (cold-start Tor circuits often need 60-120s: bootstrap + circuit + HSDir lookup + introduce + dial; bump if your daemon was just started)")
 	fs.Parse(args)
 
 	if fs.NArg() < 1 {
@@ -284,7 +285,7 @@ func runAddNode(args []string) {
 	}
 	defer backend.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
 	n, err := backend.AddNode(ctx, onionAddr)
