@@ -8,10 +8,14 @@ smoke test lives in `examples/echo.py`.
 from __future__ import annotations
 
 import asyncio
+import os
+import tempfile
 from concurrent import futures
 
 import grpc
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519
 
 from ensemble import (
     ACL,
@@ -219,5 +223,86 @@ async def test_connection_request_event_decoded(mock_server):
                 assert isinstance(ev, ConnectionRequest)
                 assert ev.request_id == "r1"
                 assert ev.from_addr == "EBOB"
+    finally:
+        server.stop(grace=0)
+
+
+# ---------- UDS regression coverage ----------
+#
+# Regression for commit 0fa3f31: when the channel target is a unix socket AND
+# `auth_seed` is set, the client builds `secure_channel(target, composite(local_creds, call_creds))`
+# using `grpc.local_channel_credentials()`. The default LocalConnectionType is
+# LOCAL_TCP, which the secure-channel composite check rejects for unix targets
+# with "Endpoint is neither UDS or TCP loopback address". The fix selects
+# `LocalConnectionType.UDS` whenever `socket_path` is given.
+#
+# These tests stand up a real gRPC server bound to a unix socket and exercise
+# both the auth and no-auth UDS code paths through `Client.register()`.
+
+
+def _fresh_seed() -> bytes:
+    priv = ed25519.Ed25519PrivateKey.generate()
+    return priv.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+
+@pytest.fixture
+def uds_socket_path():
+    """Yield a unix-socket path inside a tempdir; clean up on exit."""
+    tmpdir = tempfile.mkdtemp(prefix="ensemble-uds-")
+    path = os.path.join(tmpdir, "ensemble.sock")
+    try:
+        yield path
+    finally:
+        try:
+            if os.path.exists(path):
+                os.unlink(path)
+        finally:
+            try:
+                os.rmdir(tmpdir)
+            except OSError:
+                pass
+
+
+def _start_uds_server(servicer: _MockServicer, sock_path: str) -> grpc.Server:
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=2))
+    pbg.add_EnsembleServiceServicer_to_server(servicer, server)
+    # gRPC expects the unix-socket bind string to be `unix:<absolute-path>`.
+    server.add_insecure_port(f"unix:{sock_path}")
+    server.start()
+    return server
+
+
+async def test_register_over_uds_with_auth_seed(uds_socket_path):
+    """Regression: socket_path + auth_seed must select LocalConnectionType.UDS.
+
+    Without the fix in 0fa3f31, the call fails with UNAVAILABLE
+    "Endpoint is neither UDS or TCP loopback address" because the default
+    LOCAL_TCP local-channel-credentials reject the unix target.
+    """
+    servicer = _MockServicer(emit_event=False)
+    server = _start_uds_server(servicer, uds_socket_path)
+    seed = _fresh_seed()
+    try:
+        async with Client(socket_path=uds_socket_path, auth_seed=seed) as client:
+            async with await client.register("echo", acl=ACL.CONTACTS) as svc:
+                assert svc.address == "EFAKE"
+                assert svc.onion == "fake.onion"
+    finally:
+        server.stop(grace=0)
+
+
+async def test_register_over_uds_without_auth_seed(uds_socket_path):
+    """Negative-control: plaintext UDS with no auth must keep working."""
+    servicer = _MockServicer(emit_event=False)
+    server = _start_uds_server(servicer, uds_socket_path)
+    try:
+        async with Client(socket_path=uds_socket_path) as client:
+            async with await client.register("echo", acl=ACL.CONTACTS) as svc:
+                assert svc.address == "EFAKE"
+                assert svc.onion == "fake.onion"
     finally:
         server.stop(grace=0)
