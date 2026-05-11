@@ -398,6 +398,44 @@ func (d *Daemon) wireSubsystems(ctx context.Context, nodeSvc *services.Service, 
 	d.node.SetSignaling(sigServer, sigClient)
 	log.Printf("signaling: per-service demux started (services=%s)", nodeSvc.Name)
 
+	// Hook the registry so any service registered via the RegisterService RPC
+	// gets a signaling accept loop bound to its per-service onion listener.
+	// Without this, Tor publishes the descriptor and accepts circuits but the
+	// application never calls Accept(), so inbound CONN_REQUEST envelopes
+	// queue inside bine forever and the dialing peer times out.
+	if d.registry != nil {
+		d.registry.SetOnRegister(func(svc *services.Service) error {
+			if svc.Name == nodeSvc.Name {
+				// Node service is wired explicitly above; skip on replay.
+				return nil
+			}
+			ln, ok := d.torEngine.OnionListener(svc.Name)
+			if !ok {
+				return fmt.Errorf("no tor listener for service %q", svc.Name)
+			}
+			if err := sigServer.AddService(signaling.ServiceConfig{
+				Name:       svc.Name,
+				Keypair:    svc.Identity,
+				Address:    svc.Address,
+				Listener:   ln,
+				OnRequest:  serviceConnectionGate(svc),
+				LocalAddrs: d.localAddrs,
+			}); err != nil {
+				return fmt.Errorf("signaling.AddService(%s): %w", svc.Name, err)
+			}
+			log.Printf("signaling: bound service %s (addr=%s onion=%s)", svc.Name, svc.Address, svc.OnionAddr)
+			return nil
+		})
+		d.registry.SetOnUnregister(func(svc *services.Service) {
+			if svc.Name == nodeSvc.Name {
+				return
+			}
+			if err := sigServer.RemoveService(svc.Name); err != nil {
+				log.Printf("signaling: RemoveService(%s): %v", svc.Name, err)
+			}
+		})
+	}
+
 	// Announce to DHT if routing table has peers from disk.
 	if rt.Size() > 0 {
 		go func() {

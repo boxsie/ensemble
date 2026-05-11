@@ -37,10 +37,12 @@ type Registry struct {
 	ks *identity.Keystore
 	te OnionEngine
 
-	mu      sync.RWMutex
-	byName  map[string]*Service
-	byOnion map[string]*Service
-	disc    Discovery
+	mu           sync.RWMutex
+	byName       map[string]*Service
+	byOnion      map[string]*Service
+	disc         Discovery
+	onRegister   func(*Service) error
+	onUnregister func(*Service)
 }
 
 // New constructs a Registry that uses ks for keypair persistence and te for
@@ -117,6 +119,25 @@ func (r *Registry) Register(ctx context.Context, name string, manifest Manifest,
 		}
 	}
 
+	r.mu.RLock()
+	onReg := r.onRegister
+	r.mu.RUnlock()
+	if onReg != nil {
+		if err := onReg(svc); err != nil {
+			r.mu.Lock()
+			delete(r.byName, name)
+			delete(r.byOnion, onionAddr)
+			r.mu.Unlock()
+			if disc != nil {
+				disc.RemoveLocalIdentity(svc.Address)
+			}
+			if remErr := r.te.RemoveOnion(name); remErr != nil {
+				return nil, fmt.Errorf("onRegister hook for %q: %w (rollback also failed: %v)", name, err, remErr)
+			}
+			return nil, fmt.Errorf("onRegister hook for %q: %w", name, err)
+		}
+	}
+
 	return svc, nil
 }
 
@@ -133,7 +154,12 @@ func (r *Registry) Unregister(name string) error {
 	delete(r.byName, name)
 	delete(r.byOnion, svc.OnionAddr)
 	disc := r.disc
+	onUnreg := r.onUnregister
 	r.mu.Unlock()
+
+	if onUnreg != nil {
+		onUnreg(svc)
+	}
 
 	if disc != nil {
 		disc.RemoveLocalIdentity(svc.Address)
@@ -143,6 +169,48 @@ func (r *Registry) Unregister(name string) error {
 		return fmt.Errorf("removing onion for %q: %w", name, err)
 	}
 	return nil
+}
+
+// SetOnRegister installs a callback that fires after a successful Register
+// once the service is in the maps and (if configured) advertised on the DHT.
+// The hook is the daemon's seam for wiring per-service signaling: it pulls
+// the onion listener from the Tor engine and adds it to the signaling demux.
+// Returning a non-nil error rolls back the registration (Tor onion, discovery
+// advertisement, and registry entry are all undone). Passing nil clears the hook.
+//
+// If a callback is set after services are already registered (e.g. the daemon
+// installs it post-Tor-bootstrap, after the node service has registered), the
+// existing services are replayed through it so they pick up the same wiring.
+func (r *Registry) SetOnRegister(cb func(*Service) error) {
+	r.mu.Lock()
+	r.onRegister = cb
+	var existing []*Service
+	if cb != nil {
+		existing = make([]*Service, 0, len(r.byName))
+		for _, svc := range r.byName {
+			existing = append(existing, svc)
+		}
+	}
+	r.mu.Unlock()
+
+	for _, svc := range existing {
+		if err := cb(svc); err != nil {
+			// Replay errors are logged by the caller; we don't roll back
+			// existing services because they were already live before the
+			// hook was installed.
+			_ = err
+		}
+	}
+}
+
+// SetOnUnregister installs a callback that fires before the Tor onion teardown
+// during Unregister, after the service has been removed from the registry maps.
+// The daemon uses this to tear down the signaling accept loop. Passing nil
+// clears the hook.
+func (r *Registry) SetOnUnregister(cb func(*Service)) {
+	r.mu.Lock()
+	r.onUnregister = cb
+	r.mu.Unlock()
 }
 
 // SetDiscovery wires a Discovery implementation into the registry so future

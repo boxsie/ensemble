@@ -484,6 +484,102 @@ func TestRegisterDiscoveryFailureRollsBack(t *testing.T) {
 	}
 }
 
+func TestOnRegisterHookFiresWithService(t *testing.T) {
+	r, _, _ := newTestRegistry(t)
+	var got *Service
+	r.SetOnRegister(func(svc *Service) error {
+		got = svc
+		return nil
+	})
+
+	ctx := context.Background()
+	svc, err := r.Register(ctx, "jeff", Manifest{}, nil)
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if got == nil {
+		t.Fatal("OnRegister hook did not fire")
+	}
+	if got.Name != "jeff" || got.Address != svc.Address || got.OnionAddr != svc.OnionAddr {
+		t.Errorf("OnRegister got %+v, want %+v", got, svc)
+	}
+}
+
+func TestOnRegisterErrorRollsBack(t *testing.T) {
+	r, te, ks := newTestRegistry(t)
+	disc := &fakeDiscovery{}
+	r.SetDiscovery(disc)
+	r.SetOnRegister(func(svc *Service) error {
+		return errors.New("hook boom")
+	})
+
+	ctx := context.Background()
+	_, err := r.Register(ctx, "jeff", Manifest{}, nil)
+	if err == nil {
+		t.Fatal("Register: expected hook error, got nil")
+	}
+
+	if _, ok := r.Get("jeff"); ok {
+		t.Error("registry kept jeff after hook failure; expected rollback")
+	}
+	if te.running("jeff") {
+		t.Error("onion still running after hook failure; expected RemoveOnion")
+	}
+	_, removed := disc.snapshot()
+	if len(removed) != 1 {
+		t.Errorf("RemoveLocalIdentity calls = %d, want 1 (rollback)", len(removed))
+	}
+	if !ks.Has("jeff") {
+		t.Error("keystore dropped jeff identity (should be append-only)")
+	}
+}
+
+func TestOnUnregisterHookFiresBeforeTorTeardown(t *testing.T) {
+	r, te, _ := newTestRegistry(t)
+	var unregisteredAt bool
+	r.SetOnUnregister(func(svc *Service) {
+		// Onion must still be running when the hook fires — signaling
+		// teardown relies on the listener being live for cleanup.
+		unregisteredAt = te.running(svc.Name)
+	})
+
+	ctx := context.Background()
+	if _, err := r.Register(ctx, "jeff", Manifest{}, nil); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if err := r.Unregister("jeff"); err != nil {
+		t.Fatalf("Unregister: %v", err)
+	}
+	if !unregisteredAt {
+		t.Error("OnUnregister hook did not fire (or fired after RemoveOnion)")
+	}
+}
+
+func TestSetOnRegisterReplaysExistingServices(t *testing.T) {
+	// Mirrors the daemon's wireSubsystems ordering: the node service is
+	// registered before SetOnRegister is wired. When the hook lands, the
+	// node service must be replayed so its signaling accept loop binds too.
+	// In the daemon-side hook, the node service is filtered out — but the
+	// registry-level contract is that the hook sees every existing service.
+	r, _, _ := newTestRegistry(t)
+	ctx := context.Background()
+	if _, err := r.Register(ctx, "node", Manifest{}, nil); err != nil {
+		t.Fatalf("Register node: %v", err)
+	}
+	if _, err := r.Register(ctx, "jeff", Manifest{}, nil); err != nil {
+		t.Fatalf("Register jeff: %v", err)
+	}
+
+	seen := make(map[string]bool)
+	r.SetOnRegister(func(svc *Service) error {
+		seen[svc.Name] = true
+		return nil
+	})
+	if !seen["node"] || !seen["jeff"] {
+		t.Errorf("replay did not cover all services; seen=%v, want {node,jeff}", seen)
+	}
+}
+
 func TestConcurrentRegisterUnregisterStress(t *testing.T) {
 	r, _, _ := newTestRegistry(t)
 	ctx := context.Background()
