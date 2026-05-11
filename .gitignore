@@ -30,7 +30,3 @@ tor-data/
 
 # Local-only planning notes (not for the public repo)
 /planning/
-
-# tickets_please runtime artefacts (lockfile + cached embeddings)
-.tickets_please/.lock
-.tickets_please/**/*.embedding.json
